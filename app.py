@@ -9,10 +9,10 @@ from datetime import datetime, date, time as dt_time
 # -------------------------
 def get_connection():
     conn = mysql.connector.connect(
-        host="localhost",
-        user="root",
-        password="root@303",
-        database="conference2",
+        host=st.secrets["mysql"]["host"],
+        user=st.secrets["mysql"]["user"],
+        password=st.secrets["mysql"]["password"],
+        database=st.secrets["mysql"]["database"],
         autocommit=True
     )
     return conn
