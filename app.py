@@ -574,6 +574,7 @@ else:
                     if st.button("Manage Bookings", key="toggle_manage"):
                         st.session_state.show_manage = not st.session_state.show_manage
                         if st.session_state.show_manage:
+                            st.session_state.show_create = False   # close create if manage opens
                             st.session_state.pop("booking_msg", None)  # clear old messages
 
                     if st.session_state.show_manage:
@@ -660,6 +661,9 @@ else:
                 # ---------------- Create Booking ----------------
                 if st.button("Create Booking", key="toggle_create"):
                     st.session_state.show_create = not st.session_state.show_create
+                    if st.session_state.is_admin and st.session_state.show_create:
+                        st.session_state.show_manage = False   # close manage if create opens
+                        st.session_state.pop("booking_msg", None)
 
                 if st.session_state.show_create:
                     st.markdown("---")
@@ -684,18 +688,52 @@ else:
                             c_person = st.selectbox("Person", users["full_name"].tolist(), key="c_person")
 
                         if st.form_submit_button("Create"):
-                            df_room = df1 if c_room == "Small Conference" else df2
-                            if c_end <= c_start:
+                            # Validate times and business rules
+                            try:
+                                new_start_time = datetime.strptime(c_start, "%H:%M:%S").time()
+                                new_end_time = datetime.strptime(c_end, "%H:%M:%S").time()
+                            except Exception:
+                                st.error("Invalid time format. Use HH:MM:SS.")
+                                st.stop()
+
+                            new_start_dt = datetime.combine(c_day, new_start_time)
+                            new_end_dt = datetime.combine(c_day, new_end_time)
+
+                            # Basic ordering check
+                            if new_end_dt <= new_start_dt:
                                 st.error("End time must be after start time.")
-                            elif check_overlap(df_room, c_day, c_start, c_end):
-                                st.error("This time slot is already booked. Choose another.")
+                            # Disallow creating meeting that starts in the past (or now)
+                            elif new_start_dt <= datetime.now():
+                                st.error("Cannot create a booking that starts in the past or now. Choose a future start time.")
                             else:
-                                insert_booking(
-                                    c_day, c_start, c_end, c_agenda, c_person, c_room, st.session_state.username
-                                )
-                                st.success("Booking created successfully.")
-                                st.session_state.show_create = False
-                                st.rerun()
+                                # room-specific overlap
+                                df_room = df1 if c_room == "Small Conference" else df2
+                                if check_overlap(df_room, c_day, c_start, c_end):
+                                    st.error("This time slot is already booked in the selected room. Choose another.")
+                                # person-level overlap across both rooms
+                                else:
+                                    df_all = pd.concat([df1, df2], ignore_index=True)
+                                    person_conflict = False
+                                    for _, row in df_all.iterrows():
+                                        if row["PersonName"] != c_person:
+                                            continue
+                                        if row["Day"] != c_day:
+                                            continue
+                                        existing_start = datetime.strptime(str(row["StartTime"])[-8:], "%H:%M:%S").time()
+                                        existing_end = datetime.strptime(str(row["EndTime"])[-8:], "%H:%M:%S").time()
+                                        if not (new_end_time <= existing_start or new_start_time >= existing_end):
+                                            person_conflict = True
+                                            break
+
+                                    if person_conflict:
+                                        st.error("This person already has another booking overlapping this time.")
+                                    else:
+                                        insert_booking(
+                                            c_day, c_start, c_end, c_agenda, c_person, c_room, st.session_state.username
+                                        )
+                                        st.success("Booking created successfully.")
+                                        st.session_state.show_create = False
+                                        st.rerun()
 
         # ======================= HISTORY PAGE (Admin Only) =======================
         elif st.session_state.page == "History" and st.session_state.is_admin:
