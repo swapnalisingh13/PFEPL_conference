@@ -448,6 +448,27 @@ if "page" not in st.session_state:
 if "last_nav" not in st.session_state:
     st.session_state.last_nav = "Home"
 
+# -------- Helper function for overlap check --------
+def check_overlap(df, day, start_time_str, end_time_str, exclude_id=None):
+    """Check if the new booking overlaps with existing bookings."""
+    # Convert input strings to datetime.time
+    start_time = datetime.strptime(start_time_str, "%H:%M:%S").time()
+    end_time = datetime.strptime(end_time_str, "%H:%M:%S").time()
+
+    for _, row in df.iterrows():
+        if exclude_id and row["Id"] == exclude_id:
+            continue
+        if row["Day"] != day:
+            continue
+        # Convert existing start/end times to datetime.time
+        existing_start = datetime.strptime(str(row["StartTime"])[-8:], "%H:%M:%S").time()
+        existing_end = datetime.strptime(str(row["EndTime"])[-8:], "%H:%M:%S").time()
+        
+        # Check overlap
+        if not (end_time <= existing_start or start_time >= existing_end):
+            return True
+    return False
+
 
 # Auto-refresh mechanism
 if st.session_state.data_updated:
@@ -470,16 +491,26 @@ if st.session_state.page == "Login" or not st.session_state.logged_in:
                 st.rerun()
             else:
                 st.error("Invalid credentials")
+
 else:
-    # Navigation bar (only visible after login)
+    # ---------------- Navigation bar (only visible after login) ----------------
     st.sidebar.markdown("## Navigation")
 
     # Preserve previous selection
     if "nav_selection" not in st.session_state:
-        st.session_state.nav_selection = st.session_state.page if st.session_state.page != "Login" else "Home"
+        st.session_state.nav_selection = (
+            st.session_state.page if st.session_state.page != "Login" else "Home"
+        )
 
-    # Radio button with stored selection
-    nav = st.sidebar.radio("Go to", ["Home", "History"], index=["Home","History"].index(st.session_state.nav_selection))
+    # Navigation options
+    options = ["Home"]
+    if st.session_state.is_admin:
+        options.append("History")
+        options.append("User Details")
+
+    nav = st.sidebar.radio(
+        "Go to", options, index=options.index(st.session_state.nav_selection)
+    )
 
     # Update session state only if user actively changed
     if nav != st.session_state.nav_selection:
@@ -489,24 +520,29 @@ else:
 
     st.session_state.page = st.session_state.nav_selection
 
-
     st.markdown("## PFEPL")
     left_col, right_col = st.columns([3, 1])
 
+    # ---------------- Right column (Refresh & Logout) ----------------
     with right_col:
         st.button("Refresh", on_click=lambda: st.session_state.update({"data_updated": True}))
 
         if st.button("Logout"):
-            for key in ["logged_in", "username", "is_admin", "data_updated",
-                        "show_manage", "show_create", "page", "last_nav"]:
-                st.session_state[key] = False if key in ["logged_in", "is_admin", "data_updated",
-                                                        "show_manage", "show_create"] else ""
+            for key in [
+                "logged_in", "username", "is_admin", "data_updated",
+                "show_manage", "show_create", "page", "last_nav"
+            ]:
+                st.session_state[key] = False if key in [
+                    "logged_in", "is_admin", "data_updated", "show_manage", "show_create"
+                ] else ""
             st.session_state.page = "Login"
             st.session_state.last_nav = "Home"
             st.rerun()
 
-
+    # ---------------- Left column (Main Pages) ----------------
     with left_col:
+
+        # ======================= HOME PAGE =======================
         if st.session_state.page == "Home":
             selected_day = st.session_state.get("selected_day", datetime.now().date())
             selected_day = st.date_input("Select Date", value=selected_day, key="view_date")
@@ -533,13 +569,20 @@ else:
                     disp2.columns = ["Id", "Start", "End", "Agenda", "Person"]
                     st.dataframe(disp2, use_container_width=True)
 
+                # ---------------- Manage Bookings (Admin Only) ----------------
                 if st.session_state.is_admin:
                     if st.button("Manage Bookings", key="toggle_manage"):
                         st.session_state.show_manage = not st.session_state.show_manage
+                        if st.session_state.show_manage:
+                            st.session_state.pop("booking_msg", None)  # clear old messages
+
                     if st.session_state.show_manage:
                         st.markdown("---")
                         st.subheader("Manage Bookings (admin)")
-                        room_choice = st.selectbox("Room to manage", ["Small Conference", "Big Conference"], key="manage_room")
+
+                        room_choice = st.selectbox(
+                            "Room to manage", ["Small Conference", "Big Conference"], key="manage_room"
+                        )
                         df_sel = df1 if room_name_to_number(room_choice) == 1 else df2
 
                         if df_sel.empty:
@@ -548,61 +591,76 @@ else:
                             df_sel = df_sel.copy()
                             df_sel["label"] = df_sel.apply(
                                 lambda r: f"{r['Id']} | {r['Start Display']} - {r['End Display']} | {r['PersonName']} | {r['Agenda']}",
-                                axis=1
+                                axis=1,
                             )
-                            pick = st.selectbox("Select booking", ["Select a booking"] + df_sel["label"].tolist(), key="pick_booking")
-                            
+                            pick = st.selectbox(
+                                "Select booking",
+                                ["Select a booking"] + df_sel["label"].tolist(),
+                                key="pick_booking",
+                            )
+
                             if pick != "Select a booking":
                                 booking_id = int(pick.split("|")[0].strip())
                                 sel_row = df_sel[df_sel["Id"] == booking_id].iloc[0]
                                 cur_start_24 = convert_time_value_to_24_str(sel_row["StartTime"])
                                 cur_end_24 = convert_time_value_to_24_str(sel_row["EndTime"])
-                                start_dt = datetime.combine(sel_row["Day"], datetime.strptime(cur_start_24, "%H:%M:%S").time())
+
+                                start_dt = datetime.combine(
+                                    sel_row["Day"], datetime.strptime(cur_start_24, "%H:%M:%S").time()
+                                )
                                 is_ongoing = start_dt <= datetime.now()
-                                meeting_end_dt = datetime.combine(sel_row["Day"], datetime.strptime(cur_end_24, "%H:%M:%S").time())
+                                meeting_end_dt = datetime.combine(
+                                    sel_row["Day"], datetime.strptime(cur_end_24, "%H:%M:%S").time()
+                                )
                                 ended = meeting_end_dt <= datetime.now()
 
                                 st.write(f"Selected starts at {sel_row['Start Display']}, ends at {sel_row['End Display']}")
+
                                 if ended:
                                     st.warning("This meeting has already ended — update/delete not allowed.")
                                 else:
                                     action = st.radio("Action", ["None", "Update", "Delete"], key="admin_action")
+
                                     if action == "Update":
                                         with st.expander("Update Booking", expanded=True):
                                             with st.form(f"update_form_{booking_id}"):
                                                 u_day = st.date_input("Day", value=sel_row["Day"], key=f"u_day_{booking_id}")
-                                                if is_ongoing:
-                                                    st.write(f"Start Time (fixed, ongoing): {sel_row['Start Display']}")
-                                                    u_start = cur_start_24
-                                                else:
-                                                    u_start = time_picker("Start Time", f"u_start_{booking_id}", default_24=cur_start_24)
+                                                u_start = cur_start_24 if is_ongoing else time_picker(
+                                                    "Start Time", f"u_start_{booking_id}", default_24=cur_start_24
+                                                )
                                                 u_end = time_picker("End Time", f"u_end_{booking_id}", default_24=cur_end_24)
                                                 u_agenda = st.text_input("Agenda", value=sel_row["Agenda"], key=f"u_agenda_{booking_id}")
-                                                u_person = st.text_input("Person", value=sel_row["PersonName"], key=f"u_person_{booking_id}")
+
+                                                conn = get_connection()
+                                                users = pd.read_sql(
+                                                    "SELECT id, CONCAT(first_name, ' ', last_name) AS full_name FROM users ORDER BY first_name, last_name",
+                                                    conn,
+                                                )
+                                                conn.close()
+                                                u_person = st.selectbox(
+                                                    "Person",
+                                                    users["full_name"].tolist(),
+                                                    index=int(users[users["full_name"] == sel_row["PersonName"]].index[0]),
+                                                    key=f"u_person_{booking_id}",
+                                                )
+
                                                 if st.form_submit_button("Apply Update"):
                                                     if u_end <= u_start:
-                                                        st.error("End must be after Start.")
+                                                        st.error("End time must be after start time.")
+                                                    elif check_overlap(df_sel, u_day, u_start, u_end, exclude_id=booking_id):
+                                                        st.error("This time slot is already booked. Choose another.")
                                                     else:
-                                                        update_booking(booking_id, u_day, u_start, u_end, u_agenda, u_person, room_choice, st.session_state.username)
+                                                        update_booking(
+                                                            booking_id, u_day, u_start, u_end, u_agenda,
+                                                            u_person, room_choice, st.session_state.username
+                                                        )
+                                                        st.success("Booking updated successfully.")
                                                         st.rerun()
-                                    elif action == "Delete":
-                                        with st.expander("Delete Booking", expanded=True):
-                                            del_reason = st.text_area("Reason for deletion (required)", key=f"del_reason_{booking_id}")
-                                            confirm = st.checkbox("I confirm deletion", key=f"del_confirm_{booking_id}")
-                                            confirm_ongoing = st.checkbox("I confirm this meeting is canceled or postponed", key=f"del_confirm_ongoing_{booking_id}") if is_ongoing else True
-                                            if st.button("Delete Booking", key=f"del_btn_{booking_id}"):
-                                                if not del_reason or del_reason.strip() == "":
-                                                    st.error("Provide a reason for deletion.")
-                                                elif not confirm:
-                                                    st.error("Please confirm deletion.")
-                                                elif is_ongoing and not confirm_ongoing:
-                                                    st.error("Please confirm the meeting is canceled or postponed.")
-                                                else:
-                                                    delete_booking(booking_id, room_choice, st.session_state.username, del_reason)
-                                                    st.rerun()
 
+                # ---------------- Create Booking ----------------
                 if st.button("Create Booking", key="toggle_create"):
                     st.session_state.show_create = not st.session_state.show_create
+
                 if st.session_state.show_create:
                     st.markdown("---")
                     st.subheader("Create Booking")
@@ -612,41 +670,59 @@ else:
                         c_start = time_picker("Start Time", "c_start")
                         c_end = time_picker("End Time", "c_end")
                         c_agenda = st.text_input("Agenda", key="c_agenda")
-                        c_person = st.text_input("Person Name", key="c_person")
+
+                        conn = get_connection()
+                        users = pd.read_sql(
+                            "SELECT id, CONCAT(first_name, ' ', last_name) AS full_name FROM users ORDER BY first_name, last_name",
+                            conn,
+                        )
+                        conn.close()
+                        if users.empty:
+                            st.warning("No users available. Ask admin to add users first.")
+                            c_person = None
+                        else:
+                            c_person = st.selectbox("Person", users["full_name"].tolist(), key="c_person")
+
                         if st.form_submit_button("Create"):
+                            df_room = df1 if c_room == "Small Conference" else df2
                             if c_end <= c_start:
-                                st.error("End must be after Start.")
-                            elif datetime.combine(c_day, datetime.strptime(c_start, "%H:%M:%S").time()) < datetime.now():
-                                st.error("Cannot create a meeting in the past.")
+                                st.error("End time must be after start time.")
+                            elif check_overlap(df_room, c_day, c_start, c_end):
+                                st.error("This time slot is already booked. Choose another.")
                             else:
-                                insert_booking(c_day, c_start, c_end, c_agenda, c_person, c_room, st.session_state.username)
+                                insert_booking(
+                                    c_day, c_start, c_end, c_agenda, c_person, c_room, st.session_state.username
+                                )
+                                st.success("Booking created successfully.")
+                                st.session_state.show_create = False
                                 st.rerun()
 
-
-        elif st.session_state.page == "History":
+        # ======================= HISTORY PAGE (Admin Only) =======================
+        elif st.session_state.page == "History" and st.session_state.is_admin:
             st.subheader("Meeting History")
             now = datetime.now()
             year = st.selectbox("Year", list(range(now.year - 5, now.year + 1)), index=5)
-            
-            # Month names instead of numbers
-            month_names = ["January","February","March","April","May","June","July",
-                        "August","September","October","November","December"]
-            month_idx = st.selectbox("Month", list(range(12)), index=now.month-1, format_func=lambda x: month_names[x])
-            
-            # Load history for selected year and month
+
+            month_names = [
+                "January", "February", "March", "April", "May", "June",
+                "July", "August", "September", "October", "November", "December"
+            ]
+            month_idx = st.selectbox(
+                "Month", list(range(12)), index=now.month - 1, format_func=lambda x: month_names[x]
+            )
+
             df1, df2 = load_history(year, month_idx + 1)
-            
+
             st.markdown(f"### Small Conference - {month_names[month_idx]} {year}")
             if df1.empty:
                 st.info(f"No bookings for Small Conference in {month_names[month_idx]} {year}")
             else:
                 st.write(f"Total meetings: {len(df1)}")
                 disp1 = df1[["Day", "Start Display", "End Display", "Agenda", "PersonName"]].copy()
-                # Format date
                 disp1["Day"] = pd.to_datetime(disp1["Day"]).dt.strftime("%d-%m-%Y")
                 disp1.columns = ["Date", "Start", "End", "Agenda", "Person"]
                 st.dataframe(disp1, use_container_width=True)
-            
+
             st.markdown(f"### Big Conference - {month_names[month_idx]} {year}")
             if df2.empty:
                 st.info(f"No bookings for Big Conference in {month_names[month_idx]} {year}")
@@ -656,3 +732,36 @@ else:
                 disp2["Day"] = pd.to_datetime(disp2["Day"]).dt.strftime("%d-%m-%Y")
                 disp2.columns = ["Date", "Start", "End", "Agenda", "Person"]
                 st.dataframe(disp2, use_container_width=True)
+
+        # ======================= USER MANAGEMENT PAGE (Admin Only) =======================
+        elif st.session_state.page == "User Details" and st.session_state.is_admin:
+            st.subheader("Manage Users")
+
+            conn = get_connection()
+            users_df = pd.read_sql("SELECT id, first_name, last_name FROM users ORDER BY id", conn)
+            conn.close()
+
+            if users_df.empty:
+                st.info("No users found.")
+            else:
+                st.dataframe(users_df, use_container_width=True)
+
+            st.markdown("---")
+            st.subheader("Add New User")
+            with st.form("add_user_form"):
+                first = st.text_input("First Name")
+                last = st.text_input("Last Name")
+                if st.form_submit_button("Add User"):
+                    if not first.strip() or not last.strip():
+                        st.error("Both first and last name are required.")
+                    else:
+                        conn = get_connection()
+                        cur = conn.cursor()
+                        cur.execute(
+                            "INSERT INTO users (first_name, last_name) VALUES (%s, %s)",
+                            (first.strip(), last.strip())
+                        )
+                        conn.commit()
+                        conn.close()
+                        st.success(f"User {first} {last} added.")
+                        st.rerun()
