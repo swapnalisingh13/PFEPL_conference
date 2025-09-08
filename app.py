@@ -818,8 +818,37 @@ else:
             if users_df.empty:
                 st.info("No users found.")
             else:
-                st.dataframe(users_df, use_container_width=True)
 
+                # Allow inline editing for first and last name
+                edited_df = st.data_editor(
+                    users_df,
+                    use_container_width=True,
+                    disabled=["id"],  # prevent editing ID
+                    key="users_editor"
+                )
+
+                # Save changes back to DB
+                if st.button("Save Updates"):
+                    conn = get_connection()
+                    cur = conn.cursor()
+
+                    for idx, row in edited_df.iterrows():
+                        orig_row = users_df.loc[users_df["id"] == row["id"]].iloc[0]
+                        if (
+                            row["first_name"].strip() != orig_row["first_name"]
+                            or row["last_name"].strip() != orig_row["last_name"]
+                        ):
+                            cur.execute(
+                                "UPDATE users SET first_name=%s, last_name=%s WHERE id=%s",
+                                (row["first_name"].strip(), row["last_name"].strip(), row["id"])
+                            )
+
+                    conn.commit()
+                    conn.close()
+                    st.success("User details updated successfully.")
+                    st.rerun()
+
+            # ================== ADD SECTION ==================
             st.markdown("---")
             st.subheader("Add New User")
             with st.form("add_user_form"):
@@ -839,3 +868,21 @@ else:
                         conn.close()
                         st.success(f"User {first} {last} added.")
                         st.rerun()
+            
+            # ================== DELETE SECTION ==================
+            st.markdown("---")
+            if st.checkbox("Delete a User"):
+                selected_id = st.selectbox(
+                    "Select User to Delete",
+                    options=users_df["id"].tolist(),
+                    format_func=lambda x: f"{x} - {users_df.loc[users_df['id'] == x, 'first_name'].values[0]} {users_df.loc[users_df['id'] == x, 'last_name'].values[0]}"
+                )
+
+                if st.button("Confirm Delete", type="primary"):
+                    conn = get_connection()
+                    cur = conn.cursor()
+                    cur.execute("DELETE FROM users WHERE id=%s", (selected_id,))
+                    conn.commit()
+                    conn.close()
+                    st.warning("User deleted successfully.")
+                    st.rerun()
