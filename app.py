@@ -1,4 +1,6 @@
 import streamlit as st
+print(st.__file__)
+print(st.__version__)
 import mysql.connector
 import pandas as pd
 import json
@@ -447,6 +449,9 @@ if "page" not in st.session_state:
     st.session_state.page = "Login"
 if "last_nav" not in st.session_state:
     st.session_state.last_nav = "Home"
+if "show_rules_popup" not in st.session_state:
+    st.session_state.show_rules_popup = False
+
 
 # -------- Helper function for overlap check --------
 def check_overlap(df, day, start_time_str, end_time_str, exclude_id=None):
@@ -469,6 +474,30 @@ def check_overlap(df, day, start_time_str, end_time_str, exclude_id=None):
             return True
     return False
 
+@st.dialog("Important Rules")
+def rules_dialog():
+    st.markdown("""
+    ### Please follow these rules carefully:
+
+    1. You can **only create meetings** (no direct delete or update).  
+       ➝ If you want to update or delete anything, please contact the admin.
+
+    2. Always **check if a meeting already exists** for the selected hour.  
+       ➝ You cannot schedule overlapping meetings.
+
+    3. Meetings can be scheduled for **future slots only**.
+
+    4. If your meeting extends:  
+       - Either ask the admin to add it,  
+       - Make sure it does **not overlap with the next session**.
+
+    5. Always keep a **30-minute buffer after a meeting** before adding a new one.
+    """)
+
+    if st.button("I Understand", key="rules_ack"):
+        st.session_state.show_rules_popup = False
+        st.rerun()
+
 
 # Auto-refresh mechanism
 if st.session_state.data_updated:
@@ -488,6 +517,8 @@ if st.session_state.page == "Login" or not st.session_state.logged_in:
                 st.session_state.is_admin = is_admin(username)
                 st.session_state.page = "Home"
                 st.success("Logged in")
+                if not st.session_state.is_admin:
+                    st.session_state.show_rules_popup = True
                 st.rerun()
             else:
                 st.error("Invalid credentials")
@@ -544,6 +575,11 @@ else:
 
         # ======================= HOME PAGE =======================
         if st.session_state.page == "Home":
+        # Show rules popup only once per login for normal users
+            if st.session_state.show_rules_popup:
+                # after your session_state defaults (i.e. after last_nav and show_rules_popup setup)
+                rules_dialog()  
+
             selected_day = st.session_state.get("selected_day", datetime.now().date())
             selected_day = st.date_input("Select Date", value=selected_day, key="view_date")
             st.session_state.selected_day = selected_day
