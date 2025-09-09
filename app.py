@@ -691,7 +691,7 @@ else:
                                                             booking_id, u_day, u_start, u_end, u_agenda,
                                                             u_person, room_choice, st.session_state.username
                                                         )
-                                                        st.success("Booking updated successfully.")
+                                                        #st.success("Booking updated successfully.")
                                                         st.rerun()
                                     elif action == "Delete":
                                         with st.expander("Delete Booking", expanded=True):
@@ -740,7 +740,7 @@ else:
                                                     conn.commit()
                                                     conn.close()
 
-                                                    st.success("Booking deleted and logged successfully.")
+                                                    #st.success("Booking deleted and logged successfully.")
                                                     st.rerun()
 
                 # ---------------- Create Booking ----------------
