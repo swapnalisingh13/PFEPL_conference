@@ -693,6 +693,55 @@ else:
                                                         )
                                                         st.success("Booking updated successfully.")
                                                         st.rerun()
+                                    elif action == "Delete":
+                                        with st.expander("Delete Booking", expanded=True):
+                                            st.error("⚠️ Deleting a booking is permanent!")
+
+                                            st.markdown(f"**Booking Info:**\n- {sel_row['PersonName']} | {sel_row['Agenda']}")
+
+                                            reason = st.text_area("Reason for deletion (required)", key=f"del_reason_{booking_id}")
+
+                                            if st.button("Confirm Delete", key=f"del_btn_{booking_id}"):
+                                                if not reason.strip():
+                                                    st.error("Please provide a reason for deletion.")
+                                                else:
+                                                    # Log old booking data
+                                                    old_data = {
+                                                        "Day": str(sel_row["Day"]),
+                                                        "Start": str(sel_row["StartTime"]),
+                                                        "End": str(sel_row["EndTime"]),
+                                                        "Agenda": sel_row["Agenda"],
+                                                        "Person": sel_row["PersonName"]
+                                                    }
+
+                                                    conn = get_connection()
+                                                    cur = conn.cursor()
+
+                                                    # Delete booking
+                                                    table = "meeting_room1_bookings" if room_name_to_number(room_choice) == 1 else "meeting_room2_bookings"
+                                                    cur.execute(f"DELETE FROM {table} WHERE Id=%s", (booking_id,))
+
+
+                                                    # Insert log
+                                                    cur.execute(
+                                                        """
+                                                        INSERT INTO meeting_logs (username, action_type, meeting_id, room, old_data, new_data, reason)
+                                                        VALUES (%s, 'DELETE', %s, %s, %s, NULL, %s)
+                                                        """,
+                                                        (
+                                                            st.session_state.username,
+                                                            booking_id,
+                                                            room_name_to_number(room_choice),
+                                                            str(old_data),
+                                                            reason.strip()
+                                                        )
+                                                    )
+
+                                                    conn.commit()
+                                                    conn.close()
+
+                                                    st.success("Booking deleted and logged successfully.")
+                                                    st.rerun()
 
                 # ---------------- Create Booking ----------------
                 if st.button("Create Booking", key="toggle_create"):
