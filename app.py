@@ -784,8 +784,11 @@ else:
                             new_start_dt = datetime.combine(c_day, new_start_time)
                             new_end_dt = datetime.combine(c_day, new_end_time)
 
+                            # ❌ Disallow same start and end time
+                            if new_start_time == new_end_time:
+                                st.error("Start time and End time cannot be the same.")
                             # Basic ordering check
-                            if new_end_dt <= new_start_dt:
+                            elif new_end_dt <= new_start_dt:
                                 st.error("End time must be after start time.")
                             # Disallow creating meeting that starts in the past (or now)
                             elif new_start_dt <= datetime.now():
@@ -795,30 +798,16 @@ else:
                                 df_room = df1 if c_room == "Small Conference" else df2
                                 if check_overlap(df_room, c_day, c_start, c_end):
                                     st.error("This time slot is already booked in the selected room. Choose another.")
-                                # person-level overlap across both rooms
                                 else:
-                                    df_all = pd.concat([df1, df2], ignore_index=True)
-                                    person_conflict = False
-                                    for _, row in df_all.iterrows():
-                                        if row["PersonName"] != c_person:
-                                            continue
-                                        if row["Day"] != c_day:
-                                            continue
-                                        existing_start = datetime.strptime(str(row["StartTime"])[-8:], "%H:%M:%S").time()
-                                        existing_end = datetime.strptime(str(row["EndTime"])[-8:], "%H:%M:%S").time()
-                                        if not (new_end_time <= existing_start or new_start_time >= existing_end):
-                                            person_conflict = True
-                                            break
+                                    # ✅ Insert if all checks pass
+                                    insert_booking(
+                                        c_day, c_start, c_end, c_agenda, c_person, c_room, st.session_state.username
+                                    )
+                                    st.success("Booking created successfully.")
+                                    st.session_state.show_create = False
+                                    st.rerun()
 
-                                    if person_conflict:
-                                        st.error("This person already has another booking overlapping this time.")
-                                    else:
-                                        insert_booking(
-                                            c_day, c_start, c_end, c_agenda, c_person, c_room, st.session_state.username
-                                        )
-                                        st.success("Booking created successfully.")
-                                        st.session_state.show_create = False
-                                        st.rerun()
+
 
         # ======================= HISTORY PAGE (Admin Only) =======================
         elif st.session_state.page == "History" and st.session_state.is_admin:
