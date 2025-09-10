@@ -645,18 +645,20 @@ else:
                                 start_dt = datetime.combine(
                                     sel_row["Day"], datetime.strptime(cur_start_24, "%H:%M:%S").time()
                                 )
-                                is_ongoing = start_dt <= datetime.now()
-                                meeting_end_dt = datetime.combine(
-                                    sel_row["Day"], datetime.strptime(cur_end_24, "%H:%M:%S").time()
-                                )
-                                ended = meeting_end_dt <= datetime.now()
+                                now = datetime.now()
 
-                                st.write(f"Selected starts at {sel_row['Start Display']}, ends at {sel_row['End Display']}")
+                                meeting_start_dt = datetime.combine(sel_row["Day"], datetime.strptime(cur_start_24, "%H:%M:%S").time())
+                                meeting_end_dt = datetime.combine(sel_row["Day"], datetime.strptime(cur_end_24, "%H:%M:%S").time())
 
-                                if ended:
+                                if now >= meeting_end_dt:
+                                    # Meeting is finished
                                     st.warning("This meeting has already ended — update/delete not allowed.")
                                 else:
+                                    # If meeting is ongoing or upcoming, allow update/delete
+                                    if meeting_start_dt <= now <= meeting_end_dt:
+                                        st.info("⚡ This meeting is currently ongoing.")
                                     action = st.radio("Action", ["None", "Update", "Delete"], key="admin_action")
+
 
                                     if action == "Update":
                                         with st.expander("Update Booking", expanded=True):
