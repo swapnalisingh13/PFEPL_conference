@@ -605,6 +605,70 @@ else:
                     disp2.columns = ["Id", "Start", "End", "Agenda", "Person"]
                     st.dataframe(disp2, use_container_width=True)
 
+                # ---------------- Create Booking ----------------
+                if st.button("Create Booking", key="toggle_create"):
+                    st.session_state.show_create = not st.session_state.show_create
+                    if st.session_state.is_admin and st.session_state.show_create:
+                        st.session_state.show_manage = False   # close manage if create opens
+                        st.session_state.pop("booking_msg", None)
+
+                if st.session_state.show_create:
+                    st.markdown("---")
+                    st.subheader("Create Booking")
+                    with st.form("create_form"):
+                        c_room = st.selectbox("Room", ["Small Conference", "Big Conference"], key="c_room")
+                        c_day = st.date_input("Day", value=selected_day, key="c_day")
+                        c_start = time_picker("Start Time", "c_start")
+                        c_end = time_picker("End Time", "c_end")
+                        c_agenda = st.text_input("Agenda", key="c_agenda")
+
+                        conn = get_connection()
+                        users = pd.read_sql(
+                            "SELECT id, CONCAT(first_name, ' ', last_name) AS full_name FROM users ORDER BY first_name, last_name",
+                            conn,
+                        )
+                        conn.close()
+                        if users.empty:
+                            st.warning("No users available. Ask admin to add users first.")
+                            c_person = None
+                        else:
+                            c_person = st.selectbox("Person", users["full_name"].tolist(), key="c_person")
+
+                        if st.form_submit_button("Create"):
+                            # Validate times and business rules
+                            try:
+                                new_start_time = datetime.strptime(c_start, "%H:%M:%S").time()
+                                new_end_time = datetime.strptime(c_end, "%H:%M:%S").time()
+                            except Exception:
+                                st.error("Invalid time format. Use HH:MM:SS.")
+                                st.stop()
+
+                            new_start_dt = datetime.combine(c_day, new_start_time)
+                            new_end_dt = datetime.combine(c_day, new_end_time)
+
+                            # ❌ Disallow same start and end time
+                            if new_start_time == new_end_time:
+                                st.error("Start time and End time cannot be the same.")
+                            # Basic ordering check
+                            elif new_end_dt <= new_start_dt:
+                                st.error("End time must be after start time.")
+                            # Disallow creating meeting that starts in the past (or now)
+                            elif new_start_dt <= datetime.now():
+                                st.error("Cannot create a booking that starts in the past or now. Choose a future start time.")
+                            else:
+                                # room-specific overlap
+                                df_room = df1 if c_room == "Small Conference" else df2
+                                if check_overlap(df_room, c_day, c_start, c_end):
+                                    st.error("This time slot is already booked in the selected room. Choose another.")
+                                else:
+                                    # ✅ Insert if all checks pass
+                                    insert_booking(
+                                        c_day, c_start, c_end, c_agenda, c_person, c_room, st.session_state.username
+                                    )
+                                    st.success("Booking created successfully.")
+                                    st.session_state.show_create = False
+                                    st.rerun()
+
                 # ---------------- Manage Bookings (Admin Only) ----------------
                 if st.session_state.is_admin:
                     if st.button("Manage Bookings", key="toggle_manage"):
@@ -745,69 +809,7 @@ else:
                                                     #st.success("Booking deleted and logged successfully.")
                                                     st.rerun()
 
-                # ---------------- Create Booking ----------------
-                if st.button("Create Booking", key="toggle_create"):
-                    st.session_state.show_create = not st.session_state.show_create
-                    if st.session_state.is_admin and st.session_state.show_create:
-                        st.session_state.show_manage = False   # close manage if create opens
-                        st.session_state.pop("booking_msg", None)
-
-                if st.session_state.show_create:
-                    st.markdown("---")
-                    st.subheader("Create Booking")
-                    with st.form("create_form"):
-                        c_room = st.selectbox("Room", ["Small Conference", "Big Conference"], key="c_room")
-                        c_day = st.date_input("Day", value=selected_day, key="c_day")
-                        c_start = time_picker("Start Time", "c_start")
-                        c_end = time_picker("End Time", "c_end")
-                        c_agenda = st.text_input("Agenda", key="c_agenda")
-
-                        conn = get_connection()
-                        users = pd.read_sql(
-                            "SELECT id, CONCAT(first_name, ' ', last_name) AS full_name FROM users ORDER BY first_name, last_name",
-                            conn,
-                        )
-                        conn.close()
-                        if users.empty:
-                            st.warning("No users available. Ask admin to add users first.")
-                            c_person = None
-                        else:
-                            c_person = st.selectbox("Person", users["full_name"].tolist(), key="c_person")
-
-                        if st.form_submit_button("Create"):
-                            # Validate times and business rules
-                            try:
-                                new_start_time = datetime.strptime(c_start, "%H:%M:%S").time()
-                                new_end_time = datetime.strptime(c_end, "%H:%M:%S").time()
-                            except Exception:
-                                st.error("Invalid time format. Use HH:MM:SS.")
-                                st.stop()
-
-                            new_start_dt = datetime.combine(c_day, new_start_time)
-                            new_end_dt = datetime.combine(c_day, new_end_time)
-
-                            # ❌ Disallow same start and end time
-                            if new_start_time == new_end_time:
-                                st.error("Start time and End time cannot be the same.")
-                            # Basic ordering check
-                            elif new_end_dt <= new_start_dt:
-                                st.error("End time must be after start time.")
-                            # Disallow creating meeting that starts in the past (or now)
-                            elif new_start_dt <= datetime.now():
-                                st.error("Cannot create a booking that starts in the past or now. Choose a future start time.")
-                            else:
-                                # room-specific overlap
-                                df_room = df1 if c_room == "Small Conference" else df2
-                                if check_overlap(df_room, c_day, c_start, c_end):
-                                    st.error("This time slot is already booked in the selected room. Choose another.")
-                                else:
-                                    # ✅ Insert if all checks pass
-                                    insert_booking(
-                                        c_day, c_start, c_end, c_agenda, c_person, c_room, st.session_state.username
-                                    )
-                                    st.success("Booking created successfully.")
-                                    st.session_state.show_create = False
-                                    st.rerun()
+                
 
 
 
