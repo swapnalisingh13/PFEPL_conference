@@ -426,9 +426,6 @@ def load_history(year, month):
 
     return df1, df2
 
-# -------------------------
-# Time picker widget (typed minutes)
-# -------------------------
 #------------------------------------
 # Number validating only for minutes
 #------------------------------------
@@ -493,24 +490,6 @@ def time_picker(label, key_prefix, default_24=None):
     # Convert to 24-hour time
     return time_24_from_components(sel_h, sel_m, sel_ap)
 
-
-#------------------------------------
-#number validating only for minutes
-#------------------------------------
-def validate_minutes(input_value):
-    """
-    Validates user-entered minutes.
-    Accepts only integers from 1 to 60.
-    Raises ValueError if invalid.
-    """
-    try:
-        mins = int(input_value)
-        if 1 <= mins <= 60:
-            return mins
-        else:
-            raise ValueError("Minutes must be between 1 and 60.")
-    except Exception:
-        raise ValueError("Invalid input: must be an integer from 1 to 60.")
 
 
 # -------------------------
