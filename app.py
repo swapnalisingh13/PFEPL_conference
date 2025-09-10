@@ -237,12 +237,6 @@ def update_booking(booking_id, day, start_24, end_24, agenda, person, room, user
         conn.close()
         return
 
-    # Prevent moving booking into the past
-    if datetime.combine(day, datetime.strptime(start_24, "%H:%M:%S").time()) < now:
-        st.error("Cannot update to a start time in the past.")
-        cursor.close()
-        conn.close()
-        return
 
     # Check if ongoing
     is_ongoing = start_dt <= now <= end_dt
@@ -254,7 +248,7 @@ def update_booking(booking_id, day, start_24, end_24, agenda, person, room, user
                 conn.close()
                 return
 
-            st.info("⚡ You can only update the end time, agenda, or person for this ongoing meeting.")
+            st.write("⚡ You can only update the end time, agenda, or person for this ongoing meeting.")
 
             # ----------------- Update only allowed fields -----------------
             q = f"""
@@ -433,30 +427,91 @@ def load_history(year, month):
     return df1, df2
 
 # -------------------------
-# Time picker widget
+# Time picker widget (typed minutes)
+# -------------------------
+#------------------------------------
+# Number validating only for minutes
+#------------------------------------
+def validate_minutes(input_value):
+    """
+    Validates user-entered minutes.
+    Accepts only integers from 0 to 59.
+    Raises ValueError if invalid.
+    """
+    try:
+        mins = int(input_value)
+        if 0 <= mins <= 59:
+            return mins
+        else:
+            raise ValueError("Minutes must be between 0 and 59.")
+    except Exception:
+        raise ValueError("Invalid input: must be an integer from 0 to 59.")
+
+
+# -------------------------
+# Time picker widget (typed minutes)
 # -------------------------
 def time_picker(label, key_prefix, default_24=None):
+    """
+    Custom time picker for Streamlit:
+    - Hour: dropdown (1-12)
+    - Minutes: typed input (0-59)
+    - AM/PM: dropdown
+    Returns 24-hour formatted string "HH:MM:SS"
+    """
+
     hours = [f"{h:02d}" for h in range(1, 13)]
-    minutes = [f"{m:02d}" for m in range(0, 60, 5)]
     ampm = ["AM", "PM"]
 
+    # Parse default time if given
     if default_24:
         dh, dm, da = parse_24_to_components(default_24)
     else:
         dh, dm, da = "09", "00", "AM"
 
-    col1, col2, col3 = st.columns([1,1,1])
+    col1, col2, col3 = st.columns([1, 1, 1])
+
+    # Hour dropdown
     with col1:
         idx_h = hours.index(dh) if dh in hours else 0
         sel_h = st.selectbox(f"{label} hour", hours, index=idx_h, key=f"{key_prefix}_h")
+
+    # Minutes typed input
     with col2:
-        idx_m = minutes.index(dm) if dm in minutes else 0
-        sel_m = st.selectbox(f"{label} minute", minutes, index=idx_m, key=f"{key_prefix}_m")
+        minute_input = st.text_input(f"{label} minutes (0-59)", value=dm, key=f"{key_prefix}_m")
+        try:
+            sel_m = f"{validate_minutes(minute_input):02d}"
+        except ValueError as e:
+            st.error(f"{label} - {e}")
+            st.stop()
+
+    # AM/PM dropdown
     with col3:
         idx_ap = ampm.index(da) if da in ampm else 0
         sel_ap = st.selectbox(f"{label} AM/PM", ampm, index=idx_ap, key=f"{key_prefix}_ap")
-    
+
+    # Convert to 24-hour time
     return time_24_from_components(sel_h, sel_m, sel_ap)
+
+
+#------------------------------------
+#number validating only for minutes
+#------------------------------------
+def validate_minutes(input_value):
+    """
+    Validates user-entered minutes.
+    Accepts only integers from 1 to 60.
+    Raises ValueError if invalid.
+    """
+    try:
+        mins = int(input_value)
+        if 1 <= mins <= 60:
+            return mins
+        else:
+            raise ValueError("Minutes must be between 1 and 60.")
+    except Exception:
+        raise ValueError("Invalid input: must be an integer from 1 to 60.")
+
 
 # -------------------------
 # Streamlit UI
