@@ -214,6 +214,8 @@ def update_booking(booking_id, day, start_24, end_24, agenda, person, room, user
     conn = get_connection()
     cursor = conn.cursor(dictionary=True)
     table = "meeting_room1_bookings" if room_number == 1 else "meeting_room2_bookings"
+
+    # Fetch old booking
     cursor.execute(f"SELECT * FROM {table} WHERE Id=%s", (booking_id,))
     old_row = cursor.fetchone()
     if not old_row:
@@ -228,49 +230,77 @@ def update_booking(booking_id, day, start_24, end_24, agenda, person, room, user
     end_dt = datetime.combine(old_row["Day"], datetime.strptime(old_end, "%H:%M:%S").time())
     now = datetime.now()
 
+    # Meeting already finished → cannot update
     if end_dt <= now:
         st.error("Cannot update a meeting that already ended.")
         cursor.close()
         conn.close()
         return
-    if start_dt <= now and start_24 != old_start:
-        st.error("Cannot update start time of an ongoing meeting.")
-        cursor.close()
-        conn.close()
-        return
+
+    # Prevent moving booking into the past
     if datetime.combine(day, datetime.strptime(start_24, "%H:%M:%S").time()) < now:
         st.error("Cannot update to a start time in the past.")
         cursor.close()
         conn.close()
         return
 
-    if has_clash(day, start_24, end_24, room_number, exclude_id=booking_id):
-        st.error("Time clash detected — cannot update to this slot.")
-        cursor.close()
-        conn.close()
-        return
-
+    # Check if ongoing
+    is_ongoing = start_dt <= now <= end_dt
     try:
-        q = f"""
-            UPDATE {table}
-            SET Day=%s, StartTime=%s, EndTime=%s, Agenda=%s, PersonName=%s
-            WHERE Id=%s
-        """
-        cursor.execute(q, (str(day), start_24, end_24, agenda, person, booking_id))
-        affected_rows = cursor.rowcount
+        if is_ongoing:
+            if day != old_row["Day"] or start_24 != old_start:
+                st.info("⚡ This meeting is currently ongoing. To reschedule to another day, please delete this meeting and create a new one.")
+                cursor.close()
+                conn.close()
+                return
+
+            st.info("⚡ You can only update the end time, agenda, or person for this ongoing meeting.")
+
+            # ----------------- Update only allowed fields -----------------
+            q = f"""
+                UPDATE {table}
+                SET EndTime=%s,
+                    Agenda=%s,
+                    PersonName=%s
+                WHERE Id=%s
+            """
+            cursor.execute(q, (end_24, agenda, person, booking_id))
+
+        else:
+            # ----------------- Normal update: update all fields -----------------
+            q = f"""
+                UPDATE {table}
+                SET Day=%s,
+                    StartTime=%s,
+                    EndTime=%s,
+                    Agenda=%s,
+                    PersonName=%s
+                WHERE Id=%s
+            """
+            cursor.execute(q, (str(day), start_24, end_24, agenda, person, booking_id))
+
         conn.commit()
-        if affected_rows > 0:
+
+        if cursor.rowcount > 0:
             st.success("Booking updated.")
-            new_data = {"Day": str(day), "StartTime": start_24, "EndTime": end_24, "Agenda": agenda, "PersonName": person}
+            new_data = {
+                "Day": str(day),
+                "StartTime": start_24,
+                "EndTime": end_24,
+                "Agenda": agenda,
+                "PersonName": person
+            }
             log_action(username, "UPDATE", booking_id, room_number, old_data=old_row, new_data=new_data, reason=None)
             st.session_state.data_updated = True
         else:
-            st.error("No rows updated. Booking may not exist.")
+            st.info("No changes applied. Booking may not exist or data is the same.")
+
     except mysql.connector.Error as e:
-        st.error(f"DB error: {e.msg}")
+        st.error(f"Update failed: {e.msg}")
     finally:
         cursor.close()
         conn.close()
+
 
 def delete_booking(booking_id, room, username, reason_text):
     room_number = room_name_to_number(room)
@@ -719,19 +749,32 @@ else:
                                     st.warning("This meeting has already ended — update/delete not allowed.")
                                 else:
                                     # If meeting is ongoing or upcoming, allow update/delete
-                                    if meeting_start_dt <= now <= meeting_end_dt:
+                                    # define is_ongoing before using it later
+                                    is_ongoing = meeting_start_dt <= now <= meeting_end_dt
+
+                                    if is_ongoing:
                                         st.info("⚡ This meeting is currently ongoing.")
+
                                     action = st.radio("Action", ["None", "Update", "Delete"], key="admin_action")
+
 
 
                                     if action == "Update":
                                         with st.expander("Update Booking", expanded=True):
                                             with st.form(f"update_form_{booking_id}"):
-                                                u_day = st.date_input("Day", value=sel_row["Day"], key=f"u_day_{booking_id}")
-                                                u_start = cur_start_24 if is_ongoing else time_picker(
-                                                    "Start Time", f"u_start_{booking_id}", default_24=cur_start_24
-                                                )
+                                                #u_day = st.date_input("Day", value=sel_row["Day"], key=f"u_day_{booking_id}")
+
+                                                if is_ongoing:
+                                                    st.text(f"Start Time (locked): {cur_start_24}")
+                                                    u_start = cur_start_24  # fixed, cannot change
+                                                    u_day = sel_row["Day"]  # fixed, cannot change
+                                                else:
+                                                    u_start = time_picker("Start Time", f"u_start_{booking_id}", default_24=cur_start_24)
+                                                    u_day = st.date_input("Day", value=sel_row["Day"], key=f"u_day_{booking_id}")
+
+                                                # End time is always editable
                                                 u_end = time_picker("End Time", f"u_end_{booking_id}", default_24=cur_end_24)
+
                                                 u_agenda = st.text_input("Agenda", value=sel_row["Agenda"], key=f"u_agenda_{booking_id}")
 
                                                 conn = get_connection()
@@ -757,8 +800,8 @@ else:
                                                             booking_id, u_day, u_start, u_end, u_agenda,
                                                             u_person, room_choice, st.session_state.username
                                                         )
-                                                        #st.success("Booking updated successfully.")
                                                         st.rerun()
+
                                     elif action == "Delete":
                                         with st.expander("Delete Booking", expanded=True):
                                             st.error("⚠️ Deleting a booking is permanent!")
@@ -808,9 +851,6 @@ else:
 
                                                     #st.success("Booking deleted and logged successfully.")
                                                     st.rerun()
-
-                
-
 
 
         # ======================= HISTORY PAGE (Admin Only) =======================
