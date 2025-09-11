@@ -671,7 +671,6 @@ else:
                     st.dataframe(disp2, use_container_width=True)
 
                 # ---------------- Create Booking ----------------
-                # ---------------- Create Booking ----------------
                 if st.button("Create Booking", key="toggle_create"):
                     # flip the flag
                     st.session_state.show_create = not st.session_state.get("show_create", False)
