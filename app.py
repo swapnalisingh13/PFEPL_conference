@@ -429,30 +429,25 @@ def load_history(year, month):
 #------------------------------------
 # Number validating only for minutes
 #------------------------------------
-def validate_minutes(input_value):
+def validate_minutes(value: str) -> int:
     """
-    Validates user-entered minutes.
-    Accepts only integers from 0 to 59.
+    Ensure the minutes input is a number between 0–59.
     Raises ValueError if invalid.
     """
-    try:
-        mins = int(input_value)
-        if 0 <= mins <= 59:
-            return mins
-        else:
-            raise ValueError("Minutes must be between 0 and 59.")
-    except Exception:
-        raise ValueError("Invalid input: must be an integer from 0 to 59.")
+    if not value.isdigit():
+        raise ValueError("Minutes must be a number (0–59).")
+    num = int(value)
+    if num < 0 or num > 59:
+        raise ValueError("Minutes must be between 0 and 59.")
+    return num
 
 
-# -------------------------
-# Time picker widget (typed minutes)
-# -------------------------
+
 def time_picker(label, key_prefix, default_24=None):
     """
     Custom time picker for Streamlit:
     - Hour: dropdown (1-12)
-    - Minutes: typed input (0-59)
+    - Minutes: typed input (0-59, validated)
     - AM/PM: dropdown
     Returns 24-hour formatted string "HH:MM:SS"
     """
@@ -475,12 +470,18 @@ def time_picker(label, key_prefix, default_24=None):
 
     # Minutes typed input
     with col2:
-        minute_input = st.text_input(f"{label} minutes (0-59)", value=dm, key=f"{key_prefix}_m")
-        try:
-            sel_m = f"{validate_minutes(minute_input):02d}"
-        except ValueError as e:
-            st.error(f"{label} - {e}")
-            st.stop()
+        minute_input = st.text_input(f"{label} minutes (0–59)", value=dm, key=f"{key_prefix}_m")
+
+        # Validation
+        if minute_input.strip() == "":
+            st.warning(f"{label} - Please enter minutes (0–59).")
+            sel_m = "00"
+        else:
+            try:
+                sel_m = f"{validate_minutes(minute_input):02d}"
+            except ValueError as e:
+                st.error(f"{label} - {e}")
+                sel_m = "00"  # fallback so UI continues
 
     # AM/PM dropdown
     with col3:
