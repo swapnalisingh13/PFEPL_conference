@@ -9,8 +9,9 @@ This is a **Streamlit-based web application** for managing conference room booki
 ## Table of Contents
 1. [Features](#features)  
 2. [Installation](#installation)  
-3. [Usage](#usage)  
-4. [Rules and Regulations](#rules-and-regulations)  
+3. [Rules and Regulations](#rules-and-regulations)  
+4. [Database Structure](#database-structure)  
+5. [Logging and Audit](#logging-and-audit)  
 
 
 ---
@@ -78,6 +79,8 @@ Login
 
   -- Use the sidebar to log out.
 
+
+
 ## Rules and Regulations
 
 For **All Users**:
@@ -105,3 +108,41 @@ Start time or day cannot be changed for ongoing meetings.
 Deletion requires a reason and is logged for auditing.
 
 Admins can manage users: add, update, or delete.
+
+## Database Structure
+
+Tables
+
+login — user authentication
+
+users — user details
+
+meeting_room1_bookings — bookings for Small Conference
+
+meeting_room2_bookings — bookings for Big Conference
+
+meeting_logs — audit log for all actions
+
+Key Columns
+
+Day, StartTime, EndTime, Agenda, PersonName for booking tables.
+
+action_type, old_data, new_data, reason for logs.
+
+## Logging and Audit
+
+Every action (Create, Update, Delete) is logged with:
+
+Username
+
+Action type
+
+Booking ID
+
+Old and new data
+
+Reason (for deletion)
+
+Logs are stored in meeting_logs table for auditing purposes.
+
+
