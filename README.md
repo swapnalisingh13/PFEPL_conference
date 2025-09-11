@@ -1,5 +1,3 @@
-# PFEPL_conference
-
 # PFEPL Meeting Room Booking App
 
 This is a **Streamlit-based web application** for managing conference room bookings. It supports creating, updating, and managing meetings for two conference rooms: Small Conference and Big Conference. Admin users can manage bookings, view history, and maintain user records.
