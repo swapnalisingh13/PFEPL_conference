@@ -11,10 +11,7 @@ This is a **Streamlit-based web application** for managing conference room booki
 2. [Installation](#installation)  
 3. [Usage](#usage)  
 4. [Rules and Regulations](#rules-and-regulations)  
-5. [User Roles](#user-roles)  
-6. [Database Structure](#database-structure)  
-7. [Logging and Audit](#logging-and-audit)  
-8. [License](#license)  
+
 
 ---
 
