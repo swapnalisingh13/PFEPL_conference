@@ -589,8 +589,7 @@ def admin_rules_dialog():
     - Every action (**create / update / delete**) is logged automatically with username, time, and reason (if applicable).
     """)
         
-
-
+        
 # Auto-refresh mechanism
 if st.session_state.data_updated:
     st.session_state.data_updated = False
