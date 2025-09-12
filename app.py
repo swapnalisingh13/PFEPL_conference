@@ -514,6 +514,10 @@ if "page" not in st.session_state:
     st.session_state.page = "Login"
 if "last_nav" not in st.session_state:
     st.session_state.last_nav = "Home"
+
+# ✅ only initialize popup flags if not already present
+if "show_admin_rules_popup" not in st.session_state:
+    st.session_state.show_admin_rules_popup = False
 if "show_rules_popup" not in st.session_state:
     st.session_state.show_rules_popup = False
 
@@ -559,9 +563,32 @@ def rules_dialog():
     5. Always keep a **30-minute buffer after a meeting** before adding a new one.
     """)
 
-    if st.button("I Understand", key="rules_ack"):
-        st.session_state.show_rules_popup = False
-        st.rerun()
+
+@st.dialog("Admin Guidelines")
+def admin_rules_dialog():
+    st.markdown("""
+    ### Please follow these admin rules carefully:
+
+    #### 🏠 Home (Meetings)
+    1. You can **create, update, and delete** meetings.  
+    2. **Future meetings** → can be updated or deleted.  
+    3. **Ongoing meetings** → only update end time/agenda.  
+       ➝ If you want to shift it to the next day, you must delete it first and re-create.  
+    4. **Past meetings** → cannot be updated or deleted.  
+    5. No meeting can be shifted to another day if there’s a **conflicting schedule**.  
+
+    #### 📜 History
+    - Contains records of **completed meetings**.  
+    - Deleted meetings **will not appear** in history.  
+
+    #### 👥 User Details
+    - You can **add, update, or delete users**.  
+    - Inline editing is supported for first and last names.  
+
+    #### 📝 Logging
+    - Every action (**create / update / delete**) is logged automatically with username, time, and reason (if applicable).
+    """)
+        
 
 
 # Auto-refresh mechanism
@@ -582,8 +609,14 @@ if st.session_state.page == "Login" or not st.session_state.logged_in:
                 st.session_state.is_admin = is_admin(username)
                 st.session_state.page = "Home"
                 st.success("Logged in")
-                if not st.session_state.is_admin:
+                # Show popup once per login
+                if st.session_state.is_admin:
+                    st.session_state.show_admin_rules_popup = True
+                    st.session_state.show_rules_popup = False
+                else:
                     st.session_state.show_rules_popup = True
+                    st.session_state.show_admin_rules_popup = False
+
                 st.rerun()
             else:
                 st.error("Invalid credentials")
@@ -640,10 +673,16 @@ else:
 
         # ======================= HOME PAGE =======================
         if st.session_state.page == "Home":
-        # Show rules popup only once per login for normal users
-            if st.session_state.show_rules_popup:
-                # after your session_state defaults (i.e. after last_nav and show_rules_popup setup)
-                rules_dialog()  
+        # Show rules popup only once per login for normal users 
+            if st.session_state.is_admin and st.session_state.show_admin_rules_popup:
+                admin_rules_dialog()
+                # reset so it won't appear again on refresh
+                st.session_state.show_admin_rules_popup = False
+
+            elif not st.session_state.is_admin and st.session_state.show_rules_popup:
+                rules_dialog()
+                st.session_state.show_rules_popup = False
+
 
             selected_day = st.session_state.get("selected_day", datetime.now().date())
             selected_day = st.date_input("Select Date", value=selected_day, key="view_date")
