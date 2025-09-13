@@ -987,8 +987,8 @@ else:
             deleted_df = pd.read_sql(
                 """
                 SELECT 
-                    Day, StartTime, EndTime, Agenda, PersonName, 
-                    deleted_by, reason, deleted_at, room
+                    meeting_id, room, Day, StartTime, EndTime, Agenda, PersonName, 
+                    deleted_by, reason
                 FROM deleted_meetings
                 ORDER BY deleted_at DESC
                 """,
@@ -999,24 +999,39 @@ else:
             if deleted_df.empty:
                 st.info("No deleted meetings found.")
             else:
+                # Format date (dd-mm-yyyy)
                 deleted_df["Day"] = pd.to_datetime(deleted_df["Day"]).dt.strftime("%d-%m-%Y")
-                deleted_df["StartTime"] = deleted_df["StartTime"].astype(str)
-                deleted_df["EndTime"] = deleted_df["EndTime"].astype(str)
+
+                # ✅ Fix Start & End (convert TIME/timedelta to HH:MM)
+                deleted_df["StartTime"] = deleted_df["StartTime"].apply(lambda x: str(x)[-8:-3] if pd.notnull(x) else "")
+                deleted_df["EndTime"] = deleted_df["EndTime"].apply(lambda x: str(x)[-8:-3] if pd.notnull(x) else "")
+
+                # Map room numbers to names
+                room_map = {1: "Small Conference", 2: "Big Conference"}
+                deleted_df["room"] = deleted_df["room"].map(room_map)
+
+                # Reorder & rename columns
+                deleted_df = deleted_df[
+                    ["meeting_id", "room", "Day", "Agenda", "StartTime", "EndTime", "PersonName", "deleted_by", "reason"]
+                ]
                 deleted_df.rename(
                     columns={
+                        "meeting_id": "Meeting ID",
+                        "room": "Room",
                         "Day": "Date",
+                        "Agenda": "Agenda",
                         "StartTime": "Start",
                         "EndTime": "End",
-                        "Agenda": "Agenda",
                         "PersonName": "Person",
                         "deleted_by": "Deleted By",
-                        "reason": "Reason",
-                        "deleted_at": "Deleted At",
-                        "room": "Room"
+                        "reason": "Reason"
                     },
                     inplace=True
                 )
+
                 st.dataframe(deleted_df, use_container_width=True)
+
+
 
 
 
