@@ -2,3 +2,4 @@ streamlit
 mysql-connector-python
 pandas
 python-dotenv
+streamlit-javascript
