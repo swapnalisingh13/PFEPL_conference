@@ -575,7 +575,7 @@ def admin_rules_dialog():
     3. **Ongoing meetings** → only update end time/agenda.  
        ➝ If you want to shift it to the next day, you must delete it first and re-create.  
     4. **Past meetings** → cannot be updated or deleted.  
-    5. No meeting can be shifted to another day if there’s a **conflicting schedule**.  
+    5. No meeting can be shifted to another day if there's a **conflicting schedule**.  
 
     #### 📜 History
     - Contains records of **completed meetings**.  
