@@ -443,7 +443,7 @@ def validate_minutes(value: str) -> int:
     return num
 
 
-
+'''
 def time_picker(label, key_prefix, default_24=None):
     """
     Custom time picker for Streamlit:
@@ -490,6 +490,56 @@ def time_picker(label, key_prefix, default_24=None):
         sel_ap = st.selectbox(f"{label} AM/PM", ampm, index=idx_ap, key=f"{key_prefix}_ap")
 
     # Convert to 24-hour time
+    return time_24_from_components(sel_h, sel_m, sel_ap)
+'''
+def time_picker(label, key_prefix, default_24=None):
+    """
+    Custom time picker for Streamlit:
+    - Hour: dropdown (1-12)
+    - Minutes: typed input (0-59, validated)
+    - AM/PM: dropdown
+    Returns 24-hour formatted string "HH:MM:SS"
+    """
+
+    hours = [f"{h:02d}" for h in range(1, 13)]
+    ampm = ["AM", "PM"]
+
+    # Parse default time if given
+    if default_24:
+        dh, dm, da = parse_24_to_components(default_24)
+    else:
+        dh, dm, da = "09", "00", "AM"
+
+    # Wider middle column so minutes box fits better on mobile
+    col1, col2, col3 = st.columns([1, 2, 1])
+
+    with col1:
+        idx_h = hours.index(dh) if dh in hours else 0
+        sel_h = st.selectbox(
+            "Hr", hours, index=idx_h, key=f"{key_prefix}_h", label_visibility="visible"
+        )
+
+    with col2:
+        minute_input = st.text_input(
+            "Min", value=dm, key=f"{key_prefix}_m", max_chars=2
+        )
+
+        if minute_input.strip() == "":
+            st.warning(f"{label} - Please enter minutes (0–59).")
+            sel_m = "00"
+        else:
+            try:
+                sel_m = f"{validate_minutes(minute_input):02d}"
+            except ValueError as e:
+                st.error(f"{label} - {e}")
+                sel_m = "00"
+
+    with col3:
+        idx_ap = ampm.index(da) if da in ampm else 0
+        sel_ap = st.selectbox(
+            "AM/PM", ampm, index=idx_ap, key=f"{key_prefix}_ap", label_visibility="visible"
+        )
+
     return time_24_from_components(sel_h, sel_m, sel_ap)
 
 
@@ -551,17 +601,19 @@ def rules_dialog():
 
     1. You can **only create meetings** (no direct delete or update).  
        ➝ If you want to update or delete anything, please contact the admin.
+    
+    2. Time entered is of strictly **24 hour format** and of form **HH:MM**.
 
-    2. Always **check if a meeting already exists** for the selected hour.  
+    3. Always **check if a meeting already exists** for the selected hour.  
        ➝ You cannot schedule overlapping meetings.
 
-    3. Meetings can be scheduled for **future slots only**.
+    4. Meetings can be scheduled for **future slots only**.
 
-    4. If your meeting extends:  
+    5. If your meeting extends:  
        - Either ask the admin to add it,  
        - Make sure it does **not overlap with the next session**.
 
-    5. Always keep a **5-minute buffer after a meeting** before adding a new one.
+    6. Always keep a **5-minute buffer after a meeting** before adding a new one.
     """)
 
 
@@ -727,6 +779,7 @@ else:
                     c_day = st.date_input("Day", value=selected_day, key="c_day")
                     c_start = time_picker("Start Time", "c_start")
                     c_end = time_picker("End Time", "c_end")
+                    
                     c_agenda = st.text_input("Agenda", key="c_agenda")
 
                     conn = get_connection()
