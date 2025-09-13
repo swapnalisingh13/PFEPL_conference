@@ -579,7 +579,7 @@ def admin_rules_dialog():
 
     #### 📜 History
     - Contains records of **completed meetings**.  
-    - Deleted meetings **will not appear** in history.  
+    - Deleted meetings **will appear** in history under "Deleted Meetings" section.  
 
     #### 👥 User Details
     - You can **add, update, or delete users**.  
