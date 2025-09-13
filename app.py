@@ -845,24 +845,40 @@ else:
                                     if action == "Update":
                                         with st.expander("Update Booking", expanded=True):
                                             with st.form(f"update_form_{booking_id}"):
-                                                #u_day = st.date_input("Day", value=sel_row["Day"], key=f"u_day_{booking_id}")
 
                                                 if is_ongoing:
                                                     st.text(f"Start Time (locked): {cur_start_24}")
-                                                    u_start = cur_start_24  # fixed, cannot change
-                                                    u_day = sel_row["Day"]  # fixed, cannot change
+                                                    u_start = cur_start_24  # fixed
+                                                    u_day = sel_row["Day"]  # fixed
                                                 else:
-                                                    u_start = time_picker("Start Time", f"u_start_{booking_id}", default_24=cur_start_24)
-                                                    u_day = st.date_input("Day", value=sel_row["Day"], key=f"u_day_{booking_id}")
+                                                    u_start = time_picker(
+                                                        "Start Time",
+                                                        f"u_start_{booking_id}",
+                                                        default_24=cur_start_24
+                                                    )
+                                                    u_day = st.date_input(
+                                                        "Day",
+                                                        value=sel_row["Day"],
+                                                        key=f"u_day_{booking_id}"
+                                                    )
 
-                                                # End time is always editable
-                                                u_end = time_picker("End Time", f"u_end_{booking_id}", default_24=cur_end_24)
+                                                # End time always editable
+                                                u_end = time_picker(
+                                                    "End Time",
+                                                    f"u_end_{booking_id}",
+                                                    default_24=cur_end_24
+                                                )
 
-                                                u_agenda = st.text_input("Agenda", value=sel_row["Agenda"], key=f"u_agenda_{booking_id}")
+                                                u_agenda = st.text_input(
+                                                    "Agenda",
+                                                    value=sel_row["Agenda"],
+                                                    key=f"u_agenda_{booking_id}"
+                                                )
 
                                                 conn = get_connection()
                                                 users = pd.read_sql(
-                                                    "SELECT id, CONCAT(first_name, ' ', last_name) AS full_name FROM users ORDER BY first_name, last_name",
+                                                    "SELECT id, CONCAT(first_name, ' ', last_name) AS full_name "
+                                                    "FROM users ORDER BY first_name, last_name",
                                                     conn,
                                                 )
                                                 conn.close()
@@ -883,7 +899,9 @@ else:
                                                             booking_id, u_day, u_start, u_end, u_agenda,
                                                             u_person, room_choice, st.session_state.username
                                                         )
+                                                        st.success("Booking updated successfully ✅")
                                                         st.rerun()
+
 
                                     elif action == "Delete":
                                         with st.expander("Delete Booking", expanded=True):
