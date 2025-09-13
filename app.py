@@ -443,55 +443,6 @@ def validate_minutes(value: str) -> int:
     return num
 
 
-"""
-def time_picker(label, key_prefix, default_24=None):
-    "
-    Custom time picker for Streamlit:
-    - Hour: dropdown (1-12)
-    - Minutes: typed input (0-59, validated)
-    - AM/PM: dropdown
-    Returns 24-hour formatted string "HH:MM:SS"
-    "
-
-    hours = [f"{h:02d}" for h in range(1, 13)]
-    ampm = ["AM", "PM"]
-
-    # Parse default time if given
-    if default_24:
-        dh, dm, da = parse_24_to_components(default_24)
-    else:
-        dh, dm, da = "09", "00", "AM"
-
-    col1, col2, col3 = st.columns([1, 1, 1])
-
-    # Hour dropdown
-    with col1:
-        idx_h = hours.index(dh) if dh in hours else 0
-        sel_h = st.selectbox(f"{label} hour", hours, index=idx_h, key=f"{key_prefix}_h")
-
-    # Minutes typed input
-    with col2:
-        minute_input = st.text_input(f"{label} minutes (0–59)", value=dm, key=f"{key_prefix}_m")
-
-        # Validation
-        if minute_input.strip() == "":
-            st.warning(f"{label} - Please enter minutes (0–59).")
-            sel_m = "00"
-        else:
-            try:
-                sel_m = f"{validate_minutes(minute_input):02d}"
-            except ValueError as e:
-                st.error(f"{label} - {e}")
-                sel_m = "00"  # fallback so UI continues
-
-    # AM/PM dropdown
-    with col3:
-        idx_ap = ampm.index(da) if da in ampm else 0
-        sel_ap = st.selectbox(f"{label} AM/PM", ampm, index=idx_ap, key=f"{key_prefix}_ap")
-
-    # Convert to 24-hour time
-    return time_24_from_components(sel_h, sel_m, sel_ap)
-"""
 def time_picker(label, key_prefix, default_24=None):
     """
     Custom time picker for Streamlit:
