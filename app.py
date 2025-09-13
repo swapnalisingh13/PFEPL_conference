@@ -4,6 +4,7 @@ import mysql.connector
 import pandas as pd
 import json
 from datetime import datetime, date, time as dt_time
+import streamlit.components.v1 as components
 
 # -------------------------
 # DB connection
@@ -132,7 +133,8 @@ def insert_booking(day, start_24, end_24, agenda, person, room, username):
     table = "meeting_room1_bookings" if room_number == 1 else "meeting_room2_bookings"
     q = f"INSERT INTO {table} (Day, StartTime, EndTime, Agenda, PersonName) VALUES (%s,%s,%s,%s,%s)"
     try:
-        cursor.execute(q, (str(day), start_24, end_24, agenda, person))
+        # Fix: Pass day as date object (not str(day))
+        cursor.execute(q, (day, start_24, end_24, agenda, person))
         conn.commit()
         new_id = cursor.lastrowid
         st.success("Booking created.")
@@ -444,69 +446,79 @@ def validate_minutes(value: str) -> int:
 
 def time_picker(label, key_prefix, default_24=None):
     """
-    Custom inline time picker (JS → Streamlit sync, with working minutes).
+    Custom time picker for Streamlit:
+    - Hour: dropdown (1-12)
+    - Minutes: typed input (0-59, validated)
+    - AM/PM: dropdown
+    Returns 24-hour formatted string "HH:MM:SS"
     """
+    # CSS to force inline layout on mobile
+    st.markdown("""
+    <style>
+    /* Ensure columns stay inline */
+    [data-testid="column"] {
+        flex: 1 0 auto !important;
+        min-width: 60px !important;  /* Compact width */
+        margin-right: 5px !important; /* Small gap */
+    }
+    .row-widget.stHorizontal {
+        flex-wrap: nowrap !important; /* No wrapping */
+        overflow-x: auto !important; /* Scroll if needed */
+    }
+    /* Reduce input/select sizes */
+    input, select {
+        font-size: 12px !important;
+        padding: 2px !important;
+        height: 30px !important;
+    }
+    /* Adjust label font */
+    label {
+        font-size: 12px !important;
+        margin-bottom: 2px !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
     hours = [f"{h:02d}" for h in range(1, 13)]
     ampm = ["AM", "PM"]
 
-    dh, dm, da = ("09", "00", "AM") if not default_24 else parse_24_to_components(default_24)
-
-    h_id = f"{key_prefix}_h"
-    m_id = f"{key_prefix}_m"
-    ap_id = f"{key_prefix}_ap"
-
-    # HTML layout
-    col_html = f"""
-    <div style="display:flex; gap:16px; align-items:flex-start; margin-bottom:10px;">
-        <div>
-            <label style="font-size:13px;">{label} Hr</label><br>
-            <select id="{h_id}" style="padding:4px; border-radius:6px; border:1px solid #ccc; font-size:14px;">
-                {''.join([f'<option value="{h}" {"selected" if h==dh else ""}>{h}</option>' for h in hours])}
-            </select>
-        </div>
-        <div>
-            <label style="font-size:13px;">Min</label><br>
-            <input type="number" id="{m_id}" min="0" max="59" value="{dm}"
-                   style="width:60px; padding:4px; border-radius:6px; border:1px solid #ccc; font-size:14px;">
-        </div>
-        <div>
-            <label style="font-size:13px;">AM/PM</label><br>
-            <select id="{ap_id}" style="padding:4px; border-radius:6px; border:1px solid #ccc; font-size:14px;">
-                {''.join([f'<option value="{a}" {"selected" if a==da else ""}>{a}</option>' for a in ampm])}
-            </select>
-        </div>
-    </div>
-    """
-    st.markdown(col_html, unsafe_allow_html=True)
-
-    # JS: capture live values
-    js_code = f"""
-    () => {{
-        const hEl = document.getElementById("{h_id}");
-        const mEl = document.getElementById("{m_id}");
-        const apEl = document.getElementById("{ap_id}");
-
-        const h = hEl ? hEl.value : "{dh}";
-        const m = mEl ? mEl.value : "{dm}";
-        const ap = apEl ? apEl.value : "{da}";
-
-        return {{h, m, ap}};
-    }}
-    """
-    values = st_javascript(js_code)
-
-    # Fallbacks & validation
-    if values:
-        try:
-            sel_m = f"{validate_minutes(values['m']):02d}"
-        except Exception:
-            sel_m = "00"
-        return time_24_from_components(values["h"], sel_m, values["ap"])
+    # Parse default time if given
+    if default_24:
+        dh, dm, da = parse_24_to_components(default_24)
     else:
-        return time_24_from_components(dh, dm, da)
+        dh, dm, da = "09", "00", "AM"
 
+    # Label above to save vertical space
+    st.markdown(f"**{label}**")
 
+    # Columns with smaller ratios and gap for mobile
+    col1, col2, col3 = st.columns([1, 1, 0.8], gap="small")
+
+    # Hour dropdown
+    with col1:
+        idx_h = hours.index(dh) if dh in hours else 0
+        sel_h = st.selectbox(f"{label} hour", hours, index=idx_h, key=f"{key_prefix}_h", label_visibility="collapsed")
+
+    # Minutes typed input
+    with col2:
+        minute_input = st.text_input(f"{label} minutes (0–59)", value=dm, key=f"{key_prefix}_m", label_visibility="collapsed")
+        if minute_input.strip() == "":
+            st.warning(f"{label} - Please enter minutes (0–59).")
+            sel_m = "00"
+        else:
+            try:
+                sel_m = f"{validate_minutes(minute_input):02d}"
+            except ValueError as e:
+                st.error(f"{label} - {e}")
+                sel_m = "00"  # Fallback
+
+    # AM/PM dropdown
+    with col3:
+        idx_ap = ampm.index(da) if da in ampm else 0
+        sel_ap = st.selectbox(f"{label} AM/PM", ampm, index=idx_ap, key=f"{key_prefix}_ap", label_visibility="collapsed")
+
+    # Convert to 24-hour time
+    return time_24_from_components(sel_h, sel_m, sel_ap)
 
 # -------------------------
 # Streamlit UI
@@ -783,7 +795,7 @@ else:
                                 insert_booking(
                                     c_day, c_start, c_end, c_agenda, c_person, c_room, st.session_state.username
                                 )
-                                st.success("Booking created successfully.")
+                                #st.success("Booking created successfully.")
                                 st.session_state.show_create = False
                                 st.rerun()
 
