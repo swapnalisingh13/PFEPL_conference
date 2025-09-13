@@ -900,6 +900,26 @@ else:
 
                                                     # Delete booking
                                                     table = "meeting_room1_bookings" if room_name_to_number(room_choice) == 1 else "meeting_room2_bookings"
+                                                    # ✅ Insert into deleted_meetings BEFORE deleting
+                                                    cur.execute(
+                                                        """
+                                                        INSERT INTO deleted_meetings 
+                                                        (meeting_id, room, Day, StartTime, EndTime, Agenda, PersonName, deleted_by, reason)
+                                                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                                        """,
+                                                        (
+                                                            booking_id,
+                                                            room_name_to_number(room_choice),
+                                                            sel_row["Day"],
+                                                            sel_row["StartTime"],
+                                                            sel_row["EndTime"],
+                                                            sel_row["Agenda"],
+                                                            sel_row["PersonName"],
+                                                            st.session_state.username,
+                                                            reason.strip()
+                                                        )
+                                                    )
+                                                    
                                                     cur.execute(f"DELETE FROM {table} WHERE Id=%s", (booking_id,))
 
 
@@ -960,6 +980,45 @@ else:
                 disp2["Day"] = pd.to_datetime(disp2["Day"]).dt.strftime("%d-%m-%Y")
                 disp2.columns = ["Date", "Start", "End", "Agenda", "Person"]
                 st.dataframe(disp2, use_container_width=True)
+
+            # ======================= DELETED MEETINGS =======================
+            st.markdown("### Deleted Meetings")
+            conn = get_connection()
+            deleted_df = pd.read_sql(
+                """
+                SELECT 
+                    Day, StartTime, EndTime, Agenda, PersonName, 
+                    deleted_by, reason, deleted_at, room
+                FROM deleted_meetings
+                ORDER BY deleted_at DESC
+                """,
+                conn
+            )
+            conn.close()
+
+            if deleted_df.empty:
+                st.info("No deleted meetings found.")
+            else:
+                deleted_df["Day"] = pd.to_datetime(deleted_df["Day"]).dt.strftime("%d-%m-%Y")
+                deleted_df["StartTime"] = deleted_df["StartTime"].astype(str)
+                deleted_df["EndTime"] = deleted_df["EndTime"].astype(str)
+                deleted_df.rename(
+                    columns={
+                        "Day": "Date",
+                        "StartTime": "Start",
+                        "EndTime": "End",
+                        "Agenda": "Agenda",
+                        "PersonName": "Person",
+                        "deleted_by": "Deleted By",
+                        "reason": "Reason",
+                        "deleted_at": "Deleted At",
+                        "room": "Room"
+                    },
+                    inplace=True
+                )
+                st.dataframe(deleted_df, use_container_width=True)
+
+
 
         # ======================= USER MANAGEMENT PAGE (Admin Only) =======================
         elif st.session_state.page == "User Details" and st.session_state.is_admin:
