@@ -1,6 +1,5 @@
 import streamlit as st
-print(st.__file__)
-print(st.__version__)
+from streamlit_javascript import st_javascript
 import mysql.connector
 import pandas as pd
 import json
@@ -445,54 +444,61 @@ def validate_minutes(value: str) -> int:
 
 def time_picker(label, key_prefix, default_24=None):
     """
-    Custom time picker for Streamlit:
-    - Hour: dropdown (1-12)
-    - Minutes: typed input (0-59, validated)
-    - AM/PM: dropdown
-    Returns 24-hour formatted string "HH:MM:SS"
+    Custom inline time picker (direct JS → Streamlit sync).
     """
 
     hours = [f"{h:02d}" for h in range(1, 13)]
     ampm = ["AM", "PM"]
 
-    # Parse default time if given
-    if default_24:
-        dh, dm, da = parse_24_to_components(default_24)
-    else:
-        dh, dm, da = "09", "00", "AM"
+    dh, dm, da = ("09", "00", "AM") if not default_24 else parse_24_to_components(default_24)
 
-    # Wider middle column so minutes box fits better on mobile
-    col1, col2, col3 = st.columns([1, 2, 1])
+    h_id = f"{key_prefix}_h"
+    m_id = f"{key_prefix}_m"
+    ap_id = f"{key_prefix}_ap"
 
-    with col1:
-        idx_h = hours.index(dh) if dh in hours else 0
-        sel_h = st.selectbox(
-            "Hr", hours, index=idx_h, key=f"{key_prefix}_h", label_visibility="visible"
-        )
+    col_html = f"""
+    <div style="display:flex; gap:16px; align-items:flex-start; margin-bottom:10px;">
+        <div>
+            <label style="font-size:13px;">{label} Hr</label><br>
+            <select id="{h_id}" style="padding:4px; border-radius:6px; border:1px solid #ccc; font-size:14px;">
+                {''.join([f'<option value="{h}" {"selected" if h==dh else ""}>{h}</option>' for h in hours])}
+            </select>
+        </div>
+        <div>
+            <label style="font-size:13px;">Min</label><br>
+            <input type="number" id="{m_id}" min="0" max="59" value="{dm}"
+                   style="width:60px; padding:4px; border-radius:6px; border:1px solid #ccc; font-size:14px;">
+        </div>
+        <div>
+            <label style="font-size:13px;">AM/PM</label><br>
+            <select id="{ap_id}" style="padding:4px; border-radius:6px; border:1px solid #ccc; font-size:14px;">
+                {''.join([f'<option value="{a}" {"selected" if a==da else ""}>{a}</option>' for a in ampm])}
+            </select>
+        </div>
+    </div>
+    """
 
-    with col2:
-        minute_input = st.text_input(
-            "Min", value=dm, key=f"{key_prefix}_m", max_chars=2
-        )
+    st.markdown(col_html, unsafe_allow_html=True)
 
-        if minute_input.strip() == "":
-            st.warning(f"{label} - Please enter minutes (0–59).")
+    # Run JS to capture values
+    js_code = f"""
+    () => {{
+        const h = document.getElementById("{h_id}")?.value || "{dh}";
+        const m = document.getElementById("{m_id}")?.value || "{dm}";
+        const ap = document.getElementById("{ap_id}")?.value || "{da}";
+        return {{h, m, ap}};
+    }}
+    """
+    values = st_javascript(js_code)
+
+    if values:
+        try:
+            sel_m = f"{validate_minutes(values['m']):02d}"
+        except Exception:
             sel_m = "00"
-        else:
-            try:
-                sel_m = f"{validate_minutes(minute_input):02d}"
-            except ValueError as e:
-                st.error(f"{label} - {e}")
-                sel_m = "00"
-
-    with col3:
-        idx_ap = ampm.index(da) if da in ampm else 0
-        sel_ap = st.selectbox(
-            "AM/PM", ampm, index=idx_ap, key=f"{key_prefix}_ap", label_visibility="visible"
-        )
-
-    return time_24_from_components(sel_h, sel_m, sel_ap)
-
+        return time_24_from_components(values["h"], sel_m, values["ap"])
+    else:
+        return time_24_from_components(dh, dm, da)
 
 
 # -------------------------
