@@ -19,69 +19,6 @@ def get_connection():
     )
     return conn
 
-# -------------------------
-# Helpers: time conversion & serialization
-# -------------------------
-def time_24_from_components(hour12_str, minute_str, ampm):
-    h = int(hour12_str) % 12
-    if ampm.upper() == "PM":
-        h += 12
-    return f"{h:02d}:{minute_str}:00"
-
-def parse_24_to_components(time24):
-    try:
-        hh, mm, ss = time24.split(":")
-        hh = int(hh)
-        ampm = "AM"
-        hour12 = hh
-        if hh == 0:
-            hour12 = 12
-            ampm = "AM"
-        elif 1 <= hh < 12:
-            hour12 = hh
-            ampm = "AM"
-        elif hh == 12:
-            hour12 = 12
-            ampm = "PM"
-        else:
-            hour12 = hh - 12
-            ampm = "PM"
-        return f"{hour12:02d}", mm, ampm
-    except Exception:
-        return "09", "00", "AM"
-
-def convert_time_value_to_24_str(val):
-    if pd.isna(val):
-        return None
-    if isinstance(val, str):
-        if " " in val:
-            return val.split()[-1]
-        return val
-    try:
-        return val.strftime("%H:%M:%S")
-    except Exception:
-        try:
-            total_seconds = int(val.total_seconds())
-            h = total_seconds // 3600
-            m = (total_seconds % 3600) // 60
-            s = total_seconds % 60
-            return f"{h:02d}:{m:02d}:{s:02d}"
-        except Exception:
-            return str(val)
-
-def serialize_row_for_log(row_dict):
-    if row_dict is None:
-        return None
-    out = {}
-    for k, v in row_dict.items():
-        if isinstance(v, (datetime, date)):
-            out[k] = v.isoformat()
-        else:
-            try:
-                out[k] = str(v)
-            except Exception:
-                out[k] = None
-    return out
 
 # -------------------------
 # Room mapping
@@ -425,6 +362,70 @@ def load_history(year, month):
             df["End Display"]   = pd.to_datetime(df["EndTimeStr"], format="%H:%M:%S", errors="coerce").dt.strftime("%I:%M %p")
 
     return df1, df2
+
+# -------------------------
+# Helpers: time conversion & serialization
+# -------------------------
+def time_24_from_components(hour12_str, minute_str, ampm):
+    h = int(hour12_str) % 12
+    if ampm.upper() == "PM":
+        h += 12
+    return f"{h:02d}:{minute_str}:00"
+
+def parse_24_to_components(time24):
+    try:
+        hh, mm, ss = time24.split(":")
+        hh = int(hh)
+        ampm = "AM"
+        hour12 = hh
+        if hh == 0:
+            hour12 = 12
+            ampm = "AM"
+        elif 1 <= hh < 12:
+            hour12 = hh
+            ampm = "AM"
+        elif hh == 12:
+            hour12 = 12
+            ampm = "PM"
+        else:
+            hour12 = hh - 12
+            ampm = "PM"
+        return f"{hour12:02d}", mm, ampm
+    except Exception:
+        return "09", "00", "AM"
+
+def convert_time_value_to_24_str(val):
+    if pd.isna(val):
+        return None
+    if isinstance(val, str):
+        if " " in val:
+            return val.split()[-1]
+        return val
+    try:
+        return val.strftime("%H:%M:%S")
+    except Exception:
+        try:
+            total_seconds = int(val.total_seconds())
+            h = total_seconds // 3600
+            m = (total_seconds % 3600) // 60
+            s = total_seconds % 60
+            return f"{h:02d}:{m:02d}:{s:02d}"
+        except Exception:
+            return str(val)
+
+def serialize_row_for_log(row_dict):
+    if row_dict is None:
+        return None
+    out = {}
+    for k, v in row_dict.items():
+        if isinstance(v, (datetime, date)):
+            out[k] = v.isoformat()
+        else:
+            try:
+                out[k] = str(v)
+            except Exception:
+                out[k] = None
+    return out
 
 #------------------------------------
 # Number validating only for minutes
