@@ -444,7 +444,7 @@ def validate_minutes(value: str) -> int:
 
 def time_picker(label, key_prefix, default_24=None):
     """
-    Custom inline time picker (direct JS → Streamlit sync).
+    Custom inline time picker (JS → Streamlit sync, with working minutes).
     """
 
     hours = [f"{h:02d}" for h in range(1, 13)]
@@ -456,6 +456,7 @@ def time_picker(label, key_prefix, default_24=None):
     m_id = f"{key_prefix}_m"
     ap_id = f"{key_prefix}_ap"
 
+    # HTML layout
     col_html = f"""
     <div style="display:flex; gap:16px; align-items:flex-start; margin-bottom:10px;">
         <div>
@@ -477,20 +478,25 @@ def time_picker(label, key_prefix, default_24=None):
         </div>
     </div>
     """
-
     st.markdown(col_html, unsafe_allow_html=True)
 
-    # Run JS to capture values
+    # JS: capture live values
     js_code = f"""
     () => {{
-        const h = document.getElementById("{h_id}")?.value || "{dh}";
-        const m = document.getElementById("{m_id}")?.value || "{dm}";
-        const ap = document.getElementById("{ap_id}")?.value || "{da}";
+        const hEl = document.getElementById("{h_id}");
+        const mEl = document.getElementById("{m_id}");
+        const apEl = document.getElementById("{ap_id}");
+
+        const h = hEl ? hEl.value : "{dh}";
+        const m = mEl ? mEl.value : "{dm}";
+        const ap = apEl ? apEl.value : "{da}";
+
         return {{h, m, ap}};
     }}
     """
     values = st_javascript(js_code)
 
+    # Fallbacks & validation
     if values:
         try:
             sel_m = f"{validate_minutes(values['m']):02d}"
@@ -499,6 +505,7 @@ def time_picker(label, key_prefix, default_24=None):
         return time_24_from_components(values["h"], sel_m, values["ap"])
     else:
         return time_24_from_components(dh, dm, da)
+
 
 
 # -------------------------
