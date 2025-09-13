@@ -443,15 +443,15 @@ def validate_minutes(value: str) -> int:
     return num
 
 
-'''
+"""
 def time_picker(label, key_prefix, default_24=None):
-    """
+    "
     Custom time picker for Streamlit:
     - Hour: dropdown (1-12)
     - Minutes: typed input (0-59, validated)
     - AM/PM: dropdown
     Returns 24-hour formatted string "HH:MM:SS"
-    """
+    "
 
     hours = [f"{h:02d}" for h in range(1, 13)]
     ampm = ["AM", "PM"]
@@ -491,7 +491,7 @@ def time_picker(label, key_prefix, default_24=None):
 
     # Convert to 24-hour time
     return time_24_from_components(sel_h, sel_m, sel_ap)
-'''
+"""
 def time_picker(label, key_prefix, default_24=None):
     """
     Custom time picker for Streamlit:
