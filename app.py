@@ -560,7 +560,7 @@ def rules_dialog():
        - Either ask the admin to add it,  
        - Make sure it does **not overlap with the next session**.
 
-    5. Always keep a **30-minute buffer after a meeting** before adding a new one.
+    5. Always keep a **5-minute buffer after a meeting** before adding a new one.
     """)
 
 
