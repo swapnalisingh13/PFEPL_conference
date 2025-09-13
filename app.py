@@ -959,6 +959,7 @@ else:
                 "Month", list(range(12)), index=now.month - 1, format_func=lambda x: month_names[x]
             )
 
+            # ---------------- SMALL CONFERENCE ----------------
             df1, df2 = load_history(year, month_idx + 1)
 
             st.markdown(f"### Small Conference - {month_names[month_idx]} {year}")
@@ -971,6 +972,7 @@ else:
                 disp1.columns = ["Date", "Start", "End", "Agenda", "Person"]
                 st.dataframe(disp1, use_container_width=True)
 
+            # ---------------- BIG CONFERENCE ----------------
             st.markdown(f"### Big Conference - {month_names[month_idx]} {year}")
             if df2.empty:
                 st.info(f"No bookings for Big Conference in {month_names[month_idx]} {year}")
@@ -982,14 +984,15 @@ else:
                 st.dataframe(disp2, use_container_width=True)
 
             # ======================= DELETED MEETINGS =======================
-            st.markdown("### Deleted Meetings")
+            st.markdown(f"### Deleted Meetings - {month_names[month_idx]} {year}")
             conn = get_connection()
             deleted_df = pd.read_sql(
-                """
+                f"""
                 SELECT 
                     meeting_id, room, Day, StartTime, EndTime, Agenda, PersonName, 
                     deleted_by, reason
                 FROM deleted_meetings
+                WHERE YEAR(Day) = {year} AND MONTH(Day) = {month_idx + 1}
                 ORDER BY deleted_at DESC
                 """,
                 conn
@@ -997,20 +1000,24 @@ else:
             conn.close()
 
             if deleted_df.empty:
-                st.info("No deleted meetings found.")
+                st.info(f"No deleted meetings found for {month_names[month_idx]} {year}.")
             else:
-                # Format date (dd-mm-yyyy)
+                # Format Day
                 deleted_df["Day"] = pd.to_datetime(deleted_df["Day"]).dt.strftime("%d-%m-%Y")
 
-                # ✅ Fix Start & End (convert TIME/timedelta to HH:MM)
-                deleted_df["StartTime"] = deleted_df["StartTime"].apply(lambda x: str(x)[-8:-3] if pd.notnull(x) else "")
-                deleted_df["EndTime"] = deleted_df["EndTime"].apply(lambda x: str(x)[-8:-3] if pd.notnull(x) else "")
+                # Fix Start/End time formatting
+                deleted_df["StartTime"] = deleted_df["StartTime"].apply(
+                    lambda x: str(x)[-8:-3] if pd.notnull(x) else ""
+                )
+                deleted_df["EndTime"] = deleted_df["EndTime"].apply(
+                    lambda x: str(x)[-8:-3] if pd.notnull(x) else ""
+                )
 
                 # Map room numbers to names
                 room_map = {1: "Small Conference", 2: "Big Conference"}
                 deleted_df["room"] = deleted_df["room"].map(room_map)
 
-                # Reorder & rename columns
+                # Reorder & rename
                 deleted_df = deleted_df[
                     ["meeting_id", "room", "Day", "Agenda", "StartTime", "EndTime", "PersonName", "deleted_by", "reason"]
                 ]
@@ -1030,8 +1037,6 @@ else:
                 )
 
                 st.dataframe(deleted_df, use_container_width=True)
-
-
 
 
 
