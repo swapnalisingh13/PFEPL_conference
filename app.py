@@ -1,11 +1,10 @@
 import streamlit as st
-print(st.__file__)
-print(st.__version__)
 import mysql.connector
 import pandas as pd
 import json
 import re
-from datetime import datetime, date, time as dt_time
+from datetime import datetime, date, time as dt_time, timedelta
+
 
 # -------------------------
 # DB connection
@@ -451,17 +450,11 @@ def serialize_row_for_log(row_dict):
 # Strict 24-hour parser (HH:MM only)
 # -------------------------
 def parse_time_input(raw: str) -> str:
-    """
-    Parse strict 24-hour format time into "HH:MM:00".
-    Accepts only "HH:MM".
-    No AM/PM, no dots, no seconds input.
-    """
+    """Parse strict 24-hour format time into HH:MM:00."""
     if not raw:
         raise ValueError("Time input is empty")
 
     raw = raw.strip()
-
-    # Must match HH:MM (24-hour format only)
     pattern = r"^(\d{1,2}):(\d{2})$"
     match = re.match(pattern, raw)
     if not match:
@@ -478,33 +471,60 @@ def parse_time_input(raw: str) -> str:
 
     return f"{hour:02d}:{minute:02d}:00"
 
-
 # -------------------------
-# Streamlit time picker
+# Streamlit hybrid time picker
 # -------------------------
 def time_picker(label, key_prefix, default_24=None):
     """
-    Streamlit smart time picker.
-    User types time in 24-hour format (HH:MM).
-    Returns "HH:MM:00" if valid, else None.
+    Hybrid time picker:
+    - Dropdown with 30 min intervals (09:00, 09:30, ...)
+    - Manual text input for custom times (e.g., 18:45, 18:49)
+    Always returns "HH:MM:00" if valid, else None.
     """
+    # Build dropdown options in 30-min intervals
+    intervals = []
+    t = dt_time(0, 0)
+    while t < dt_time(23, 59):
+        intervals.append(t.strftime("%H:%M"))
+        dt = datetime.combine(datetime.today(), t) + timedelta(minutes=30)
+        t = dt.time()
+
+    # Default display value
     default_val = ""
     if default_24:
         try:
             dt = datetime.strptime(default_24, "%H:%M:%S")
-            default_val = dt.strftime("%H:%M")  # show only HH:MM
+            default_val = dt.strftime("%H:%M")
         except Exception:
             default_val = ""
 
-    raw_input = st.text_input(
-        label,
-        value=default_val,
-        key=f"{key_prefix}_time",
-        placeholder="HH:MM (24-hour format)"
+    # Let user choose dropdown or manual
+    st.write(f"**{label}**")
+    mode = st.radio(
+        "Select input mode:",
+        ["Choose from list", "Enter manually"],
+        key=f"{key_prefix}_mode",
+        horizontal=True
     )
 
-    if raw_input.strip() == "":
-        st.warning(f"{label} - Please enter a time in 24-hour format (e.g., 09:30 or 16:45).")
+    raw_input = None
+    if mode == "Choose from list":
+        raw_input = st.selectbox(
+            "Pick a time",
+            intervals,
+            index=intervals.index(default_val) if default_val in intervals else 0,
+            key=f"{key_prefix}_dropdown",
+        )
+    else:
+        raw_input = st.text_input(
+            "Enter custom time (HH:MM)",
+            value=default_val,
+            key=f"{key_prefix}_manual",
+            placeholder="e.g., 18:45"
+        )
+
+    # Validate
+    if not raw_input:
         return None
 
     try:
@@ -513,6 +533,7 @@ def time_picker(label, key_prefix, default_24=None):
     except ValueError as e:
         st.error(f"{label} - {e}")
         return None
+
 
 # -------------------------
 # Streamlit UI
