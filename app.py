@@ -1,10 +1,10 @@
 import streamlit as st
-from streamlit_javascript import st_javascript
+print(st.__file__)
+print(st.__version__)
 import mysql.connector
 import pandas as pd
 import json
 from datetime import datetime, date, time as dt_time
-import streamlit.components.v1 as components
 
 # -------------------------
 # DB connection
@@ -101,7 +101,7 @@ def log_action(username, action_type, meeting_id, room, old_data=None, new_data=
             json.dumps(serialize_row_for_log(new_data)) if new_data is not None else None,
             reason
         ))
-        conn.commit()
+        conn.commit()  # Add this line
     except mysql.connector.Error as e:
         print(f"Log error: {e.msg}")
     finally:
@@ -118,34 +118,42 @@ def insert_booking(day, start_24, end_24, agenda, person, room, username):
     
     if meeting_start_dt < now:
         st.error("Cannot create a booking with start time in the past.")
-        return
+        return None
     if meeting_end_dt < now:
         st.error("Cannot create a booking that already ended.")
-        return
+        return None
 
     room_number = room_name_to_number(room)
     if has_clash(day, start_24, end_24, room_number):
         st.error("Time clash detected — choose another slot.")
-        return
+        return None
 
     conn = get_connection()
     cursor = conn.cursor()
     table = "meeting_room1_bookings" if room_number == 1 else "meeting_room2_bookings"
     q = f"INSERT INTO {table} (Day, StartTime, EndTime, Agenda, PersonName) VALUES (%s,%s,%s,%s,%s)"
+    
     try:
-        # Fix: Pass day as date object (not str(day))
-        cursor.execute(q, (day, start_24, end_24, agenda, person))
+        cursor.execute(q, (str(day), start_24, end_24, agenda, person))
         conn.commit()
         new_id = cursor.lastrowid
-        st.success("Booking created.")
-        new_data = {"Day": str(day), "StartTime": start_24, "EndTime": end_24, "Agenda": agenda, "PersonName": person}
-        log_action(username, "CREATE", new_id, room_number, old_data=None, new_data=new_data, reason=None)
-        st.session_state.data_updated = True
+        if new_id:
+            st.success(f"Booking created (ID: {new_id}).")
+            new_data = {"Day": str(day), "StartTime": start_24, "EndTime": end_24,
+                        "Agenda": agenda, "PersonName": person}
+            log_action(username, "CREATE", new_id, room_number, old_data=None, new_data=new_data, reason=None)
+            st.session_state.data_updated = True
+        else:
+            st.error("Booking failed: no row inserted.")
+        return new_id
     except mysql.connector.Error as e:
-        st.error(f"DB error: {e.msg}")
+        # This will catch trigger errors like overlap or invalid EndTime
+        st.error(f"Failed to create booking: {e.msg}")
+        return None
     finally:
         cursor.close()
         conn.close()
+
 
 def update_booking(booking_id, day, start_24, end_24, agenda, person, room, username):
     room_number = room_name_to_number(room)
@@ -281,11 +289,20 @@ def load_bookings(selected_day=None):
     filter_clause = ""
 
     if selected_day:
-        # Only show meetings for that date, and only if end time >= now
-        filter_clause = "WHERE Day = %s AND EndTime >= %s"
-        params = (selected_day.strftime("%Y-%m-%d"), now.strftime("%H:%M:%S"))
+        if selected_day == now.date():
+            # For today → show only ongoing and future meetings
+            filter_clause = "WHERE Day = %s AND EndTime >= %s"
+            params = (selected_day.strftime("%Y-%m-%d"), now.strftime("%H:%M:%S"))
+        elif selected_day > now.date():
+            # For future dates → show all meetings
+            filter_clause = "WHERE Day = %s"
+            params = (selected_day.strftime("%Y-%m-%d"),)
+        else:
+            # For past dates → return empty DataFrames (history page handles these)
+            conn.close()
+            return pd.DataFrame(), pd.DataFrame()
     else:
-        # Show today's meetings from now onwards
+        # Default → today’s meetings (ongoing + future)
         filter_clause = "WHERE Day = %s AND EndTime >= %s"
         params = (now.date(), now.strftime("%H:%M:%S"))
 
@@ -316,6 +333,7 @@ def load_bookings(selected_day=None):
             df["End Display"] = pd.to_datetime(df["EndTimeStr"], format="%H:%M:%S", errors="coerce").dt.strftime("%I:%M %p")
 
     return df1, df2
+
 
 # -------------------------
 # Load history (past meetings, month-wise)
@@ -452,32 +470,6 @@ def time_picker(label, key_prefix, default_24=None):
     - AM/PM: dropdown
     Returns 24-hour formatted string "HH:MM:SS"
     """
-    # CSS to force inline layout on mobile
-    st.markdown("""
-    <style>
-    /* Ensure columns stay inline */
-    [data-testid="column"] {
-        flex: 1 0 auto !important;
-        min-width: 60px !important;  /* Compact width */
-        margin-right: 5px !important; /* Small gap */
-    }
-    .row-widget.stHorizontal {
-        flex-wrap: nowrap !important; /* No wrapping */
-        overflow-x: auto !important; /* Scroll if needed */
-    }
-    /* Reduce input/select sizes */
-    input, select {
-        font-size: 12px !important;
-        padding: 2px !important;
-        height: 30px !important;
-    }
-    /* Adjust label font */
-    label {
-        font-size: 12px !important;
-        margin-bottom: 2px !important;
-    }
-    </style>
-    """, unsafe_allow_html=True)
 
     hours = [f"{h:02d}" for h in range(1, 13)]
     ampm = ["AM", "PM"]
@@ -488,20 +480,20 @@ def time_picker(label, key_prefix, default_24=None):
     else:
         dh, dm, da = "09", "00", "AM"
 
-    # Label above to save vertical space
-    st.markdown(f"**{label}**")
+    # Wider middle column so minutes box fits better on mobile
+    col1, col2, col3 = st.columns([1, 2, 1])
 
-    # Columns with smaller ratios and gap for mobile
-    col1, col2, col3 = st.columns([1, 1, 0.8], gap="small")
-
-    # Hour dropdown
     with col1:
         idx_h = hours.index(dh) if dh in hours else 0
-        sel_h = st.selectbox(f"{label} hour", hours, index=idx_h, key=f"{key_prefix}_h", label_visibility="collapsed")
+        sel_h = st.selectbox(
+            "Hr", hours, index=idx_h, key=f"{key_prefix}_h", label_visibility="visible"
+        )
 
-    # Minutes typed input
     with col2:
-        minute_input = st.text_input(f"{label} minutes (0–59)", value=dm, key=f"{key_prefix}_m", label_visibility="collapsed")
+        minute_input = st.text_input(
+            "Min", value=dm, key=f"{key_prefix}_m", max_chars=2
+        )
+
         if minute_input.strip() == "":
             st.warning(f"{label} - Please enter minutes (0–59).")
             sel_m = "00"
@@ -510,15 +502,16 @@ def time_picker(label, key_prefix, default_24=None):
                 sel_m = f"{validate_minutes(minute_input):02d}"
             except ValueError as e:
                 st.error(f"{label} - {e}")
-                sel_m = "00"  # Fallback
+                sel_m = "00"
 
-    # AM/PM dropdown
     with col3:
         idx_ap = ampm.index(da) if da in ampm else 0
-        sel_ap = st.selectbox(f"{label} AM/PM", ampm, index=idx_ap, key=f"{key_prefix}_ap", label_visibility="collapsed")
+        sel_ap = st.selectbox(
+            "AM/PM", ampm, index=idx_ap, key=f"{key_prefix}_ap", label_visibility="visible"
+        )
 
-    # Convert to 24-hour time
     return time_24_from_components(sel_h, sel_m, sel_ap)
+
 
 # -------------------------
 # Streamlit UI
@@ -725,16 +718,16 @@ else:
                 if df1.empty:
                     st.info("No bookings for Small Conference on this date.")
                 else:
-                    disp1 = df1[["Id", "Start Display", "End Display", "Agenda", "PersonName"]].copy()
-                    disp1.columns = ["Id", "Start", "End", "Agenda", "Person"]
+                    disp1 = df1[["Start Display", "End Display", "Agenda", "PersonName"]].copy()
+                    disp1.columns = ["Start", "End", "Agenda", "Person"]
                     st.dataframe(disp1, use_container_width=True)
 
                 st.markdown("### Big Conference")
                 if df2.empty:
                     st.info("No bookings for Big Conference on this date.")
                 else:
-                    disp2 = df2[["Id", "Start Display", "End Display", "Agenda", "PersonName"]].copy()
-                    disp2.columns = ["Id", "Start", "End", "Agenda", "Person"]
+                    disp2 = df2[["Start Display", "End Display", "Agenda", "PersonName"]].copy()
+                    disp2.columns = ["Start", "End", "Agenda", "Person"]
                     st.dataframe(disp2, use_container_width=True)
 
                 # ---------------- Create Booking ----------------
@@ -795,7 +788,7 @@ else:
                                 insert_booking(
                                     c_day, c_start, c_end, c_agenda, c_person, c_room, st.session_state.username
                                 )
-                                #st.success("Booking created successfully.")
+                                st.success("Booking created successfully.")
                                 st.session_state.show_create = False
                                 st.rerun()
 
@@ -864,40 +857,24 @@ else:
                                     if action == "Update":
                                         with st.expander("Update Booking", expanded=True):
                                             with st.form(f"update_form_{booking_id}"):
+                                                #u_day = st.date_input("Day", value=sel_row["Day"], key=f"u_day_{booking_id}")
 
                                                 if is_ongoing:
                                                     st.text(f"Start Time (locked): {cur_start_24}")
-                                                    u_start = cur_start_24  # fixed
-                                                    u_day = sel_row["Day"]  # fixed
+                                                    u_start = cur_start_24  # fixed, cannot change
+                                                    u_day = sel_row["Day"]  # fixed, cannot change
                                                 else:
-                                                    u_start = time_picker(
-                                                        "Start Time",
-                                                        f"u_start_{booking_id}",
-                                                        default_24=cur_start_24
-                                                    )
-                                                    u_day = st.date_input(
-                                                        "Day",
-                                                        value=sel_row["Day"],
-                                                        key=f"u_day_{booking_id}"
-                                                    )
+                                                    u_start = time_picker("Start Time", f"u_start_{booking_id}", default_24=cur_start_24)
+                                                    u_day = st.date_input("Day", value=sel_row["Day"], key=f"u_day_{booking_id}")
 
-                                                # End time always editable
-                                                u_end = time_picker(
-                                                    "End Time",
-                                                    f"u_end_{booking_id}",
-                                                    default_24=cur_end_24
-                                                )
+                                                # End time is always editable
+                                                u_end = time_picker("End Time", f"u_end_{booking_id}", default_24=cur_end_24)
 
-                                                u_agenda = st.text_input(
-                                                    "Agenda",
-                                                    value=sel_row["Agenda"],
-                                                    key=f"u_agenda_{booking_id}"
-                                                )
+                                                u_agenda = st.text_input("Agenda", value=sel_row["Agenda"], key=f"u_agenda_{booking_id}")
 
                                                 conn = get_connection()
                                                 users = pd.read_sql(
-                                                    "SELECT id, CONCAT(first_name, ' ', last_name) AS full_name "
-                                                    "FROM users ORDER BY first_name, last_name",
+                                                    "SELECT id, CONCAT(first_name, ' ', last_name) AS full_name FROM users ORDER BY first_name, last_name",
                                                     conn,
                                                 )
                                                 conn.close()
@@ -918,9 +895,7 @@ else:
                                                             booking_id, u_day, u_start, u_end, u_agenda,
                                                             u_person, room_choice, st.session_state.username
                                                         )
-                                                        st.success("Booking updated successfully ✅")
                                                         st.rerun()
-
 
                                     elif action == "Delete":
                                         with st.expander("Delete Booking", expanded=True):
