@@ -586,21 +586,11 @@ def rules_dialog():
     st.markdown("""
     ### Please follow these rules carefully:
 
-    1. You can **only create meetings** (no direct delete or update).  
-       ➝ If you want to update or delete anything, please contact the admin.
+    1. If you want to update or delete anything, please mail the receptionist.
     
-    2. Time entered is of strictly **24 hour format** and of form **HH:MM**.
+    2. Time entered is of strictly 24 hour format and of form HH:MM or if entered 12 hours format its of form HH:MM AM/PM.
 
-    3. Always **check if a meeting already exists** for the selected hour.  
-       ➝ You cannot schedule overlapping meetings.
-
-    4. Meetings can be scheduled for **future slots only**.
-
-    5. If your meeting extends:  
-       - Either ask the admin to add it,  
-       - Make sure it does **not overlap with the next session**.
-
-    6. Always keep a **5-minute buffer after a meeting** before adding a new one.
+    3. Always keep a **5-minute buffer after a meeting** before adding a new one.
     """)
 
 
