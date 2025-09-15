@@ -486,16 +486,16 @@ def time_picker(label, key_prefix, default_24=None):
     with col1:
         idx_h = hours.index(dh) if dh in hours else 0
         sel_h = st.selectbox(
-            "Hr", hours, index=idx_h, key=f"{key_prefix}_h", label_visibility="visible"
+            "Hour", hours, index=idx_h, key=f"{key_prefix}_h", label_visibility="visible"
         )
 
     with col2:
         minute_input = st.text_input(
-            "Min", value=dm, key=f"{key_prefix}_m", max_chars=2
+            "Minutes", value=dm, key=f"{key_prefix}_m", max_chars=2
         )
 
         if minute_input.strip() == "":
-            st.warning(f"{label} - Please enter minutes (0–59).")
+            st.warning(f"{label} - Please enter minutes (0-59).")
             sel_m = "00"
         else:
             try:
