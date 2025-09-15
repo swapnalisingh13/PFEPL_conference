@@ -1,6 +1,4 @@
 import streamlit as st
-print(st.__file__)
-print(st.__version__)
 import mysql.connector
 import pandas as pd
 import json
@@ -464,17 +462,17 @@ def smart_24_hour(start_input, end_input):
     """
     try:
         # Parse minutes if provided, else default to 0
-        if ":" in start_input:
-            sh, sm = map(int, start_input.split(":"))
+        if "." in start_input:
+            sh, sm = map(int, start_input.split("."))
         else:
             sh, sm = int(start_input), 0
 
-        if ":" in end_input:
-            eh, em = map(int, end_input.split(":"))
+        if "." in end_input:
+            eh, em = map(int, end_input.split("."))
         else:
             eh, em = int(end_input), 0
 
-        # Smart conversion rules for business hours (09:00-20:59)
+        # Smart conversion rules for business hours (09.00-20.59)
         if sh < MIN_HOUR:
             sh += 12  # assume PM for small hour input
 
@@ -504,21 +502,21 @@ def smart_24_hour(start_input, end_input):
 
 
 # -------------------------
-# Strict HH:MM parser (for manual exact inputs)
+# Strict HH.MM parser (for manual exact inputs)
 # -------------------------
 def parse_time_input(raw: str) -> str:
     """
-    Parse strict 24-hour format time into "HH:MM:00".
-    Accepts only "HH:MM".
+    Parse strict 24-hour format time into "HH.MM.00".
+    Accepts only "HH.MM".
     """
     if not raw:
         raise ValueError("Time input is empty")
 
     raw = raw.strip()
-    pattern = r"^(\d{1,2}):(\d{2})$"
+    pattern = r"^(\d{1,2})\.(\d{2})$"
     match = re.match(pattern, raw)
     if not match:
-        raise ValueError("Invalid format. Use 24-hour 'HH:MM'.")
+        raise ValueError("Invalid format. Use 24-hour 'HH.MM'.")
 
     hour, minute = match.groups()
     hour = int(hour)
@@ -588,7 +586,7 @@ def rules_dialog():
 
     1. If you want to update or delete anything, please mail the receptionist.
     
-    2. Accepted time formats :  **9:00** or **2:00** for pm.
+    2. Accepted time formats :  **9.00** or **2.00** for pm.
 
     3. Always keep a **5-minute buffer after a meeting** before adding a new one.
     """)
@@ -754,8 +752,8 @@ else:
 
                     c_room = st.selectbox("Room", ["Small Conference", "Big Conference"], key="c_room")
                     c_day = st.date_input("Day", value=selected_day, key="c_day")
-                    c_start_input = st.text_input("Start Time (HH or HH:MM)", key="c_start_input")
-                    c_end_input = st.text_input("End Time (HH or HH:MM)", key="c_end_input")
+                    c_start_input = st.text_input("Start Time (HH or HH.MM)", key="c_start_input")
+                    c_end_input = st.text_input("End Time (HH or HH.MM)", key="c_end_input")
                     c_agenda = st.text_input("Agenda", key="c_agenda")
 
                     conn = get_connection()
@@ -869,38 +867,54 @@ else:
                                     if action == "Update":
                                         with st.expander("Update Booking", expanded=True):
                                             with st.form(f"update_form_{booking_id}"):
-                                                # Format start/end times as HH:MM only
+
+                                                # Convert current start/end to HH.MM format
                                                 cur_start_24 = convert_time_value_to_24_str(sel_row["StartTime"])
                                                 cur_end_24 = convert_time_value_to_24_str(sel_row["EndTime"])
 
-
+                                                # ------------------------
+                                                # Day selection / display
+                                                # ------------------------
                                                 if is_ongoing:
-                                                    st.text(f"Start Time (locked): {cur_start_24}")
-                                                    u_start = cur_start_24  # locked as HH:MM
+                                                    st.text(f"Day (locked): {sel_row['Day']}")
                                                     u_day = sel_row["Day"]
                                                 else:
+                                                    u_day = st.date_input("Day", value=sel_row["Day"], key=f"u_day_{booking_id}")
+
+                                                # ------------------------
+                                                # Start time input
+                                                # ------------------------
+                                                if is_ongoing:
+                                                    st.text(f"Start Time (locked): {cur_start_24}")
+                                                    u_start = cur_start_24  # locked as HH.MM
+                                                else:
                                                     u_start = st.text_input(
-                                                        "Start Time (HH or HH:MM)", 
-                                                        value=cur_start_24, 
+                                                        "Start Time (HH or HH.MM)",
+                                                        value=cur_start_24.replace(":", "."),
                                                         key=f"u_start_{booking_id}"
                                                     )
-                                                    u_day = st.date_input(
-                                                        "Day", 
-                                                        value=sel_row["Day"], 
-                                                        key=f"u_day_{booking_id}"
-                                                    )
 
-                                                # End time is always editable
+                                                # ------------------------
+                                                # End time input (always editable)
+                                                # ------------------------
                                                 u_end = st.text_input(
-                                                    "End Time (HH or HH:MM)", 
-                                                    value=cur_end_24, 
+                                                    "End Time (HH or HH.MM)",
+                                                    value=cur_end_24.replace(":", "."),
                                                     key=f"u_end_{booking_id}"
                                                 )
-                                                u_agenda = st.text_input("Agenda", value=sel_row["Agenda"], key=f"u_agenda_{booking_id}")
 
+                                                # Agenda input
+                                                u_agenda = st.text_input(
+                                                    "Agenda",
+                                                    value=sel_row["Agenda"],
+                                                    key=f"u_agenda_{booking_id}"
+                                                )
+
+                                                # Person selection
                                                 conn = get_connection()
                                                 users = pd.read_sql(
-                                                    "SELECT id, CONCAT(first_name, ' ', last_name) AS full_name FROM users ORDER BY first_name, last_name",
+                                                    "SELECT id, CONCAT(first_name, ' ', last_name) AS full_name "
+                                                    "FROM users ORDER BY first_name, last_name",
                                                     conn,
                                                 )
                                                 conn.close()
@@ -912,7 +926,12 @@ else:
                                                     key=f"u_person_{booking_id}",
                                                 )
 
+                                                # ------------------------
+                                                # Form submit logic
+                                                # ------------------------
                                                 if st.form_submit_button("Apply Update"):
+
+                                                    # Convert user inputs from HH.MM to datetime.time
                                                     if not is_ongoing:
                                                         # Future meeting → both start and end editable
                                                         new_start_time, new_end_time, err = smart_24_hour(u_start, u_end)
@@ -921,7 +940,7 @@ else:
                                                             st.stop()
                                                     else:
                                                         # Ongoing meeting → start locked, only end editable
-                                                        locked_start = datetime.strptime(u_start, "%H:%M").time()
+                                                        locked_start = datetime.strptime(u_start.replace(".", ":"), "%H:%M").time()
                                                         _, new_end_time, err = smart_24_hour(u_start, u_end)
                                                         if err:
                                                             st.error(err)
@@ -931,7 +950,7 @@ else:
                                                     start_dt = datetime.combine(u_day, new_start_time)
                                                     end_dt = datetime.combine(u_day, new_end_time)
 
-                                                    # Overlap check
+                                                    # Check for overlapping bookings
                                                     if check_overlap(
                                                         df_sel,
                                                         u_day,
@@ -941,6 +960,7 @@ else:
                                                     ):
                                                         st.error("This time slot is already booked. Choose another.")
                                                     else:
+                                                        # Update the booking
                                                         update_booking(
                                                             booking_id,
                                                             u_day,
@@ -953,6 +973,7 @@ else:
                                                         )
                                                         st.success("Booking updated successfully.")
                                                         st.rerun()
+
 
 
                                     elif action == "Delete":
