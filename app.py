@@ -447,57 +447,36 @@ def serialize_row_for_log(row_dict):
                 out[k] = None
     return out
 
+# -------------------------
+# Strict 24-hour parser (HH:MM only)
+# -------------------------
 def parse_time_input(raw: str) -> str:
     """
-    Parse flexible user time input into strict 24-hour format HH:MM:SS.
-    Accepts things like:
-      - "4:30pm"
-      - "04:30 PM"
-      - "16:45"
-      - "4.30pm"
-      - "16.45"
-    Returns "HH:MM:SS" if valid, else raises ValueError.
+    Parse strict 24-hour format time into "HH:MM:00".
+    Accepts only "HH:MM".
+    No AM/PM, no dots, no seconds input.
     """
     if not raw:
         raise ValueError("Time input is empty")
 
-    raw = raw.strip().lower().replace(" ", "")
+    raw = raw.strip()
 
-    # Must contain either ":" OR "." but not both
-    if (":" in raw) and ("." in raw):
-        raise ValueError("Use either ':' or '.' as a separator, not both")
-
-    sep = ":" if ":" in raw else "."
-    if sep not in raw:
-        raise ValueError("Time must be entered with ':' or '.' (e.g., 4:30pm or 16.45)")
-
-    # Regex for hh:mm[am|pm] OR hh.mm[am|pm]
-    pattern = rf"^(\d{{1,2}}){sep}(\d{{2}})(am|pm)?$"
+    # Must match HH:MM (24-hour format only)
+    pattern = r"^(\d{1,2}):(\d{2})$"
     match = re.match(pattern, raw)
     if not match:
-        raise ValueError("Invalid time format. Use hh:mm or hh.mm with optional AM/PM")
+        raise ValueError("Invalid format. Use 24-hour 'HH:MM'.")
 
-    hour, minute, ampm = match.groups()
+    hour, minute = match.groups()
     hour = int(hour)
     minute = int(minute)
 
+    if hour < 0 or hour > 23:
+        raise ValueError("Hour must be between 0 and 23")
     if minute < 0 or minute > 59:
         raise ValueError("Minutes must be between 0 and 59")
 
-    # Handle AM/PM if provided
-    if ampm:
-        if hour < 1 or hour > 12:
-            raise ValueError("Hour must be 1-12 when using AM/PM")
-        if ampm == "pm" and hour != 12:
-            hour += 12
-        if ampm == "am" and hour == 12:
-            hour = 0
-    else:
-        if hour < 0 or hour > 23:
-            raise ValueError("Hour must be 0-23 when using 24-hour format")
-
     return f"{hour:02d}:{minute:02d}:00"
-
 
 
 # -------------------------
@@ -506,21 +485,26 @@ def parse_time_input(raw: str) -> str:
 def time_picker(label, key_prefix, default_24=None):
     """
     Streamlit smart time picker.
-    User types time in text form, parser validates and converts.
-    Returns 24-hour formatted string "HH:MM:SS".
+    User types time in 24-hour format (HH:MM).
+    Returns "HH:MM:00" if valid, else None.
     """
     default_val = ""
     if default_24:
         try:
             dt = datetime.strptime(default_24, "%H:%M:%S")
-            default_val = dt.strftime("%I:%M %p")  # show user-friendly default
+            default_val = dt.strftime("%H:%M")  # show only HH:MM
         except Exception:
             default_val = ""
 
-    raw_input = st.text_input(label, value=default_val, key=f"{key_prefix}_time")
+    raw_input = st.text_input(
+        label,
+        value=default_val,
+        key=f"{key_prefix}_time",
+        placeholder="HH:MM (24-hour format)"
+    )
 
     if raw_input.strip() == "":
-        st.warning(f"{label} - Please enter a time (e.g., 4:30pm, 4.30 pm or 16:45).")
+        st.warning(f"{label} - Please enter a time in 24-hour format (e.g., 09:30 or 16:45).")
         return None
 
     try:
@@ -529,7 +513,6 @@ def time_picker(label, key_prefix, default_24=None):
     except ValueError as e:
         st.error(f"{label} - {e}")
         return None
-
 
 # -------------------------
 # Streamlit UI
@@ -588,7 +571,7 @@ def rules_dialog():
 
     1. If you want to update or delete anything, please mail the receptionist.
     
-    2. Time entered is of strictly 24 hour format and of form HH:MM or if entered 12 hours format its of form HH:MM AM/PM.
+    2. Accepted time formats :  **9:00, 14:00, 16:15**.
 
     3. Always keep a **5-minute buffer after a meeting** before adding a new one.
     """)
