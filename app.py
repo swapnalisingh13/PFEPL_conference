@@ -779,12 +779,14 @@ else:
                         c_person = st.selectbox("Person", users["full_name"].tolist(), key="c_person")
 
                     if st.button("Save Booking", key="save_create"):
+                        
                         try:
                             new_start_time = datetime.strptime(c_start, "%H:%M:%S").time()
                             new_end_time = datetime.strptime(c_end, "%H:%M:%S").time()
-                        except Exception:
-                            st.error("Invalid time format. Use HH:MM:SS.")
+                        except ValueError:
+                            st.error("Invalid time format. Please enter time as HH:MM (24-hour).")
                             st.stop()
+
 
                         new_start_dt = datetime.combine(c_day, new_start_time)
                         new_end_dt = datetime.combine(c_day, new_end_time)
@@ -904,8 +906,8 @@ else:
                                                     try:
                                                         start_time_obj = datetime.strptime(u_start, "%H:%M:%S").time()
                                                         end_time_obj = datetime.strptime(u_end, "%H:%M:%S").time()
-                                                    except Exception:
-                                                        st.error("Invalid time format. Please enter a valid time like '4:30pm' or '16:30'.")
+                                                    except ValueError:
+                                                        st.error("Invalid time format. Please enter time as HH:MM (24-hour).")
                                                         st.stop()
 
                                                     start_dt = datetime.combine(u_day, start_time_obj)
