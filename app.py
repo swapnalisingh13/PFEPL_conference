@@ -4,6 +4,7 @@ print(st.__version__)
 import mysql.connector
 import pandas as pd
 import json
+import re
 from datetime import datetime, date, time as dt_time
 
 # -------------------------
@@ -446,71 +447,74 @@ def serialize_row_for_log(row_dict):
                 out[k] = None
     return out
 
-#------------------------------------
-# Number validating only for minutes
-#------------------------------------
-def validate_minutes(value: str) -> int:
+def parse_time_input(raw: str) -> str:
     """
-    Ensure the minutes input is a number between 0–59.
-    Raises ValueError if invalid.
+    Parse flexible user time input into strict 24-hour format HH:MM:SS.
+    Accepts things like:
+      - "4:30pm"
+      - "04:30 PM"
+      - "16:45"
+    Returns "HH:MM:SS" if valid, else raises ValueError.
     """
-    if not value.isdigit():
-        raise ValueError("Minutes must be a number (0–59).")
-    num = int(value)
-    if num < 0 or num > 59:
-        raise ValueError("Minutes must be between 0 and 59.")
-    return num
+    if not raw or ":" not in raw:
+        raise ValueError("Time must be entered in format like 4:30pm or 16:45")
+
+    raw = raw.strip().lower().replace(" ", "")
+    match = re.match(r"^(\d{1,2}):(\d{2})(am|pm)?$", raw)
+    if not match:
+        raise ValueError("Invalid time format. Use hh:mm with optional AM/PM")
+
+    hour, minute, ampm = match.groups()
+    hour = int(hour)
+    minute = int(minute)
+
+    if minute < 0 or minute > 59:
+        raise ValueError("Minutes must be between 0 and 59")
+
+    # Handle AM/PM if provided
+    if ampm:
+        if hour < 1 or hour > 12:
+            raise ValueError("Hour must be 1-12 when using AM/PM")
+        if ampm == "pm" and hour != 12:
+            hour += 12
+        if ampm == "am" and hour == 12:
+            hour = 0
+    else:
+        if hour < 0 or hour > 23:
+            raise ValueError("Hour must be 0-23 when using 24-hour format")
+
+    return f"{hour:02d}:{minute:02d}:00"
 
 
+# -------------------------
+# Streamlit time picker
+# -------------------------
 def time_picker(label, key_prefix, default_24=None):
     """
-    Custom time picker for Streamlit:
-    - Hour: dropdown (1-12)
-    - Minutes: typed input (0-59, validated)
-    - AM/PM: dropdown
-    Returns 24-hour formatted string "HH:MM:SS"
+    Streamlit smart time picker.
+    User types time in text form, parser validates and converts.
+    Returns 24-hour formatted string "HH:MM:SS".
     """
-
-    hours = [f"{h:02d}" for h in range(1, 13)]
-    ampm = ["AM", "PM"]
-
-    # Parse default time if given
+    default_val = ""
     if default_24:
-        dh, dm, da = parse_24_to_components(default_24)
-    else:
-        dh, dm, da = "09", "00", "AM"
+        try:
+            dt = datetime.strptime(default_24, "%H:%M:%S")
+            default_val = dt.strftime("%I:%M %p")  # show user-friendly default
+        except Exception:
+            default_val = ""
 
-    # Wider middle column so minutes box fits better on mobile
-    col1, col2, col3 = st.columns([1, 2, 1])
+    raw_input = st.text_input(label, value=default_val, key=f"{key_prefix}_time")
 
-    with col1:
-        idx_h = hours.index(dh) if dh in hours else 0
-        sel_h = st.selectbox(
-            "Hour", hours, index=idx_h, key=f"{key_prefix}_h", label_visibility="visible"
-        )
+    if raw_input.strip() == "":
+        st.warning(f"{label} - Please enter a time (e.g., 4:30pm or 16:45).")
+        return None
 
-    with col2:
-        minute_input = st.text_input(
-            "Minutes", value=dm, key=f"{key_prefix}_m", max_chars=2
-        )
-
-        if minute_input.strip() == "":
-            st.warning(f"{label} - Please enter minutes (0-59).")
-            sel_m = "00"
-        else:
-            try:
-                sel_m = f"{validate_minutes(minute_input):02d}"
-            except ValueError as e:
-                st.error(f"{label} - {e}")
-                sel_m = "00"
-
-    with col3:
-        idx_ap = ampm.index(da) if da in ampm else 0
-        sel_ap = st.selectbox(
-            "AM/PM", ampm, index=idx_ap, key=f"{key_prefix}_ap", label_visibility="visible"
-        )
-
-    return time_24_from_components(sel_h, sel_m, sel_ap)
+    try:
+        parsed = parse_time_input(raw_input)
+        return parsed
+    except ValueError as e:
+        st.error(f"{label} - {e}")
+        return None
 
 
 # -------------------------
@@ -748,7 +752,10 @@ else:
                     c_day = st.date_input("Day", value=selected_day, key="c_day")
                     c_start = time_picker("Start Time", "c_start")
                     c_end = time_picker("End Time", "c_end")
-                    
+                    if not c_start or not c_end:
+                        st.stop()
+
+
                     c_agenda = st.text_input("Agenda", key="c_agenda")
 
                     conn = get_connection()
@@ -886,7 +893,17 @@ else:
                                                 )
 
                                                 if st.form_submit_button("Apply Update"):
-                                                    if u_end <= u_start:
+                                                    try:
+                                                        start_time_obj = datetime.strptime(u_start, "%H:%M:%S").time()
+                                                        end_time_obj = datetime.strptime(u_end, "%H:%M:%S").time()
+                                                    except Exception:
+                                                        st.error("Invalid time format. Please enter a valid time like '4:30pm' or '16:30'.")
+                                                        st.stop()
+
+                                                    start_dt = datetime.combine(u_day, start_time_obj)
+                                                    end_dt = datetime.combine(u_day, end_time_obj)
+
+                                                    if end_dt <= start_dt:
                                                         st.error("End time must be after start time.")
                                                     elif check_overlap(df_sel, u_day, u_start, u_end, exclude_id=booking_id):
                                                         st.error("This time slot is already booked. Choose another.")
@@ -895,7 +912,9 @@ else:
                                                             booking_id, u_day, u_start, u_end, u_agenda,
                                                             u_person, room_choice, st.session_state.username
                                                         )
+                                                        st.success("Booking updated successfully.")
                                                         st.rerun()
+
 
                                     elif action == "Delete":
                                         with st.expander("Delete Booking", expanded=True):
