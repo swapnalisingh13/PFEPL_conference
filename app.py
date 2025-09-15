@@ -447,21 +447,73 @@ def serialize_row_for_log(row_dict):
                 out[k] = None
     return out
 
+from datetime import datetime, time
+import pandas as pd
+import re
+import streamlit as st
+
+MIN_HOUR = 9
+MAX_HOUR = 20
+
 # -------------------------
-# Strict 24-hour parser (HH:MM only)
+# Convert flexible start/end input to 24-hour time
+# -------------------------
+def smart_24_hour(start_input, end_input):
+    """
+    Converts flexible start/end input to 24-hour times.
+    Returns (start_time, end_time, error_message)
+    """
+    try:
+        # Parse minutes if provided, else default to 0
+        if ":" in start_input:
+            sh, sm = map(int, start_input.split(":"))
+        else:
+            sh, sm = int(start_input), 0
+
+        if ":" in end_input:
+            eh, em = map(int, end_input.split(":"))
+        else:
+            eh, em = int(end_input), 0
+
+        # Smart conversion rules for business hours (09:00-20:59)
+        if sh < MIN_HOUR:
+            sh += 12  # assume PM for small hour input
+
+        # Adjust end hour if it's smaller than start
+        if eh <= sh:
+            eh += 12
+
+        # Check allowed business hours
+        if not (MIN_HOUR <= sh <= MAX_HOUR):
+            return None, None, "Start time must be between 09:00 and 20:59"
+        if not (MIN_HOUR <= eh <= MAX_HOUR):
+            return None, None, "End time must be between 09:00 and 20:59"
+
+        start_time = time(sh, sm)
+        end_time = time(eh, em)
+
+        # End must be after start
+        if end_time <= start_time:
+            return None, None, "End time must be after Start time"
+
+        return start_time, end_time, None
+
+    except Exception as e:
+        return None, None, f"Invalid input: {e}"
+
+
+# -------------------------
+# Strict HH:MM parser (for manual exact inputs)
 # -------------------------
 def parse_time_input(raw: str) -> str:
     """
     Parse strict 24-hour format time into "HH:MM:00".
     Accepts only "HH:MM".
-    No AM/PM, no dots, no seconds input.
     """
     if not raw:
         raise ValueError("Time input is empty")
 
     raw = raw.strip()
-
-    # Must match HH:MM (24-hour format only)
     pattern = r"^(\d{1,2}):(\d{2})$"
     match = re.match(pattern, raw)
     if not match:
@@ -471,48 +523,12 @@ def parse_time_input(raw: str) -> str:
     hour = int(hour)
     minute = int(minute)
 
-    if hour < 0 or hour > 23:
-        raise ValueError("Hour must be between 0 and 23")
+    if hour < MIN_HOUR or hour > MAX_HOUR:
+        raise ValueError(f"Hour must be between {MIN_HOUR} and {MAX_HOUR}")
     if minute < 0 or minute > 59:
         raise ValueError("Minutes must be between 0 and 59")
 
     return f"{hour:02d}:{minute:02d}:00"
-
-
-# -------------------------
-# Streamlit time picker
-# -------------------------
-def time_picker(label, key_prefix, default_24=None):
-    """
-    Streamlit smart time picker.
-    User types time in 24-hour format (HH:MM).
-    Returns "HH:MM:00" if valid, else None.
-    """
-    default_val = ""
-    if default_24:
-        try:
-            dt = datetime.strptime(default_24, "%H:%M:%S")
-            default_val = dt.strftime("%H:%M")  # show only HH:MM
-        except Exception:
-            default_val = ""
-
-    raw_input = st.text_input(
-        label,
-        value=default_val,
-        key=f"{key_prefix}_time",
-        placeholder="HH:MM (24-hour format)"
-    )
-
-    if raw_input.strip() == "":
-        st.warning(f"{label} - Please enter a time in 24-hour format (e.g., 09:30 or 16:45).")
-        return None
-
-    try:
-        parsed = parse_time_input(raw_input)
-        return parsed
-    except ValueError as e:
-        st.error(f"{label} - {e}")
-        return None
 
 # -------------------------
 # Streamlit UI
@@ -737,11 +753,11 @@ else:
 
                     c_room = st.selectbox("Room", ["Small Conference", "Big Conference"], key="c_room")
                     c_day = st.date_input("Day", value=selected_day, key="c_day")
-                    c_start = time_picker("Start Time", "c_start")
-                    c_end = time_picker("End Time", "c_end")
-                    if not c_start or not c_end:
-                        st.stop()
+                    c_start_input = st.text_input("Start Time (HH or HH:MM)", key="c_start_input")
+                    c_end_input = st.text_input("End Time (HH or HH:MM)", key="c_end_input")
 
+                    if not c_start_input or not c_end_input:
+                        st.stop()
 
                     c_agenda = st.text_input("Agenda", key="c_agenda")
 
@@ -758,33 +774,33 @@ else:
                         c_person = st.selectbox("Person", users["full_name"].tolist(), key="c_person")
 
                     if st.button("Save Booking", key="save_create"):
-                        try:
-                            new_start_time = datetime.strptime(c_start, "%H:%M:%S").time()
-                            new_end_time = datetime.strptime(c_end, "%H:%M:%S").time()
-                        except Exception:
-                            st.error("Invalid time format. Use HH:MM:SS.")
+                        # Use smart conversion
+                        new_start_time, new_end_time, err = smart_24_hour(c_start_input, c_end_input)
+                        if err:
+                            st.error(err)
                             st.stop()
 
                         new_start_dt = datetime.combine(c_day, new_start_time)
                         new_end_dt = datetime.combine(c_day, new_end_time)
 
-                        if new_start_time == new_end_time:
-                            st.error("Start time and End time cannot be the same.")
-                        elif new_end_dt <= new_start_dt:
-                            st.error("End time must be after start time.")
-                        elif new_start_dt <= datetime.now():
-                            st.error("Cannot create a booking that starts in the past or now. Choose a future start time.")
+                        # Overlap check
+                        df_room = df1 if c_room == "Small Conference" else df2
+                        if check_overlap(df_room, c_day, new_start_time.strftime("%H:%M:%S"), new_end_time.strftime("%H:%M:%S")):
+                            st.error("This time slot is already booked in the selected room. Choose another.")
                         else:
-                            df_room = df1 if c_room == "Small Conference" else df2
-                            if check_overlap(df_room, c_day, c_start, c_end):
-                                st.error("This time slot is already booked in the selected room. Choose another.")
-                            else:
-                                insert_booking(
-                                    c_day, c_start, c_end, c_agenda, c_person, c_room, st.session_state.username
-                                )
-                                st.success("Booking created successfully.")
-                                st.session_state.show_create = False
-                                st.rerun()
+                            insert_booking(
+                                c_day, 
+                                new_start_time.strftime("%H:%M:%S"), 
+                                new_end_time.strftime("%H:%M:%S"), 
+                                c_agenda, 
+                                c_person, 
+                                c_room, 
+                                st.session_state.username
+                            )
+                            st.success("Booking created successfully.")
+                            st.session_state.show_create = False
+                            st.rerun()
+
 
 
 
@@ -851,19 +867,16 @@ else:
                                     if action == "Update":
                                         with st.expander("Update Booking", expanded=True):
                                             with st.form(f"update_form_{booking_id}"):
-                                                #u_day = st.date_input("Day", value=sel_row["Day"], key=f"u_day_{booking_id}")
-
                                                 if is_ongoing:
                                                     st.text(f"Start Time (locked): {cur_start_24}")
-                                                    u_start = cur_start_24  # fixed, cannot change
-                                                    u_day = sel_row["Day"]  # fixed, cannot change
+                                                    u_start = cur_start_24
+                                                    u_day = sel_row["Day"]
                                                 else:
-                                                    u_start = time_picker("Start Time", f"u_start_{booking_id}", default_24=cur_start_24)
+                                                    u_start = st.text_input("Start Time (HH or HH:MM)", value=cur_start_24, key=f"u_start_{booking_id}")
                                                     u_day = st.date_input("Day", value=sel_row["Day"], key=f"u_day_{booking_id}")
 
                                                 # End time is always editable
-                                                u_end = time_picker("End Time", f"u_end_{booking_id}", default_24=cur_end_24)
-
+                                                u_end = st.text_input("End Time (HH or HH:MM)", value=cur_end_24, key=f"u_end_{booking_id}")
                                                 u_agenda = st.text_input("Agenda", value=sel_row["Agenda"], key=f"u_agenda_{booking_id}")
 
                                                 conn = get_connection()
@@ -880,27 +893,39 @@ else:
                                                 )
 
                                                 if st.form_submit_button("Apply Update"):
-                                                    try:
-                                                        start_time_obj = datetime.strptime(u_start, "%H:%M:%S").time()
-                                                        end_time_obj = datetime.strptime(u_end, "%H:%M:%S").time()
-                                                    except Exception:
-                                                        st.error("Invalid time format. Please enter a valid time like '4:30pm' or '16:30'.")
-                                                        st.stop()
+                                                    # Smart conversion for editable fields
+                                                    if not is_ongoing:
+                                                        new_start_time, new_end_time, err = smart_24_hour(u_start, u_end)
+                                                        if err:
+                                                            st.error(err)
+                                                            st.stop()
+                                                    else:
+                                                        new_start_time = datetime.strptime(u_start, "%H:%M:%S").time()
+                                                        new_end_time, _, err = smart_24_hour(u_start, u_end)  # end is editable
+                                                        if err:
+                                                            st.error(err)
+                                                            st.stop()
 
-                                                    start_dt = datetime.combine(u_day, start_time_obj)
-                                                    end_dt = datetime.combine(u_day, end_time_obj)
+                                                    start_dt = datetime.combine(u_day, new_start_time)
+                                                    end_dt = datetime.combine(u_day, new_end_time)
 
-                                                    if end_dt <= start_dt:
-                                                        st.error("End time must be after start time.")
-                                                    elif check_overlap(df_sel, u_day, u_start, u_end, exclude_id=booking_id):
+                                                    # Overlap check
+                                                    if check_overlap(df_sel, u_day, new_start_time.strftime("%H:%M:%S"), new_end_time.strftime("%H:%M:%S"), exclude_id=booking_id):
                                                         st.error("This time slot is already booked. Choose another.")
                                                     else:
                                                         update_booking(
-                                                            booking_id, u_day, u_start, u_end, u_agenda,
-                                                            u_person, room_choice, st.session_state.username
+                                                            booking_id,
+                                                            u_day,
+                                                            new_start_time.strftime("%H:%M:%S"),
+                                                            new_end_time.strftime("%H:%M:%S"),
+                                                            u_agenda,
+                                                            u_person,
+                                                            room_choice,
+                                                            st.session_state.username
                                                         )
                                                         st.success("Booking updated successfully.")
                                                         st.rerun()
+
 
 
                                     elif action == "Delete":
