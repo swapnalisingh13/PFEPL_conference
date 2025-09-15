@@ -173,8 +173,8 @@ def update_booking(booking_id, day, start_24, end_24, agenda, person, room, user
 
     old_start = convert_time_value_to_24_str(old_row.get("StartTime"))
     old_end = convert_time_value_to_24_str(old_row.get("EndTime"))
-    start_dt = datetime.combine(old_row["Day"], datetime.strptime(old_start, "%H:%M:%S").time())
-    end_dt = datetime.combine(old_row["Day"], datetime.strptime(old_end, "%H:%M:%S").time())
+    start_dt = datetime.combine(old_row["Day"], datetime.strptime(old_start, "%H:%M").time())
+    end_dt = datetime.combine(old_row["Day"], datetime.strptime(old_end, "%H:%M").time())
     now = datetime.now()
 
     # Meeting already finished → cannot update
@@ -419,19 +419,20 @@ def convert_time_value_to_24_str(val):
         return None
     if isinstance(val, str):
         if " " in val:
-            return val.split()[-1]
-        return val
+            val = val.split()[-1]
+        # Normalize to HH:MM
+        return val[:5]
     try:
-        return val.strftime("%H:%M:%S")
+        return val.strftime("%H:%M")
     except Exception:
         try:
             total_seconds = int(val.total_seconds())
             h = total_seconds // 3600
             m = (total_seconds % 3600) // 60
-            s = total_seconds % 60
-            return f"{h:02d}:{m:02d}:{s:02d}"
+            return f"{h:02d}:{m:02d}"
         except Exception:
-            return str(val)
+            return str(val)[:5]
+
 
 def serialize_row_for_log(row_dict):
     if row_dict is None:
@@ -449,8 +450,6 @@ def serialize_row_for_log(row_dict):
 
 from datetime import datetime, time
 import pandas as pd
-import re
-import streamlit as st
 
 MIN_HOUR = 9
 MAX_HOUR = 20
@@ -480,14 +479,16 @@ def smart_24_hour(start_input, end_input):
             sh += 12  # assume PM for small hour input
 
         # Adjust end hour if it's smaller than start
-        if eh <= sh:
+        # Only bump end time if it's truly "before or equal" start
+        if (eh < sh) or (eh == sh and em <= sm):
             eh += 12
+
 
         # Check allowed business hours
         if not (MIN_HOUR <= sh <= MAX_HOUR):
             return None, None, "Start time must be between 09:00 am to 8:58 pm"
         if not (MIN_HOUR <= eh <= MAX_HOUR):
-            return None, None, "End time must be between 09:00 and 8:59"
+            return None, None, "End time must be between 09:00 am and 8:59 pm"
 
         start_time = time(sh, sm)
         end_time = time(eh, em)
@@ -755,10 +756,6 @@ else:
                     c_day = st.date_input("Day", value=selected_day, key="c_day")
                     c_start_input = st.text_input("Start Time (HH or HH:MM)", key="c_start_input")
                     c_end_input = st.text_input("End Time (HH or HH:MM)", key="c_end_input")
-
-                    if not c_start_input or not c_end_input:
-                        st.stop()
-
                     c_agenda = st.text_input("Agenda", key="c_agenda")
 
                     conn = get_connection()
@@ -774,33 +771,34 @@ else:
                         c_person = st.selectbox("Person", users["full_name"].tolist(), key="c_person")
 
                     if st.button("Save Booking", key="save_create"):
-                        # Use smart conversion
-                        new_start_time, new_end_time, err = smart_24_hour(c_start_input, c_end_input)
-                        if err:
-                            st.error(err)
-                            st.stop()
-
-                        new_start_dt = datetime.combine(c_day, new_start_time)
-                        new_end_dt = datetime.combine(c_day, new_end_time)
-
-                        # Overlap check
-                        df_room = df1 if c_room == "Small Conference" else df2
-                        if check_overlap(df_room, c_day, new_start_time.strftime("%H:%M:%S"), new_end_time.strftime("%H:%M:%S")):
-                            st.error("This time slot is already booked in the selected room. Choose another.")
+                        # Validation happens only when Save is clicked
+                        if not c_start_input or not c_end_input:
+                            st.error("Please enter both start and end times.")
                         else:
-                            insert_booking(
-                                c_day, 
-                                new_start_time.strftime("%H:%M:%S"), 
-                                new_end_time.strftime("%H:%M:%S"), 
-                                c_agenda, 
-                                c_person, 
-                                c_room, 
-                                st.session_state.username
-                            )
-                            st.success("Booking created successfully.")
-                            st.session_state.show_create = False
-                            st.rerun()
+                            new_start_time, new_end_time, err = smart_24_hour(c_start_input, c_end_input)
+                            if err:
+                                st.error(err)
+                            else:
+                                new_start_dt = datetime.combine(c_day, new_start_time)
+                                new_end_dt = datetime.combine(c_day, new_end_time)
 
+                                # Overlap check
+                                df_room = df1 if c_room == "Small Conference" else df2
+                                if check_overlap(df_room, c_day, new_start_time.strftime("%H:%M:%S"), new_end_time.strftime("%H:%M:%S")):
+                                    st.error("This time slot is already booked in the selected room. Choose another.")
+                                else:
+                                    insert_booking(
+                                        c_day,
+                                        new_start_time.strftime("%H:%M:%S"),
+                                        new_end_time.strftime("%H:%M:%S"),
+                                        c_agenda,
+                                        c_person,
+                                        c_room,
+                                        st.session_state.username
+                                    )
+                                    st.success("Booking created successfully.")
+                                    st.session_state.show_create = False
+                                    st.rerun()
 
 
 
@@ -841,13 +839,17 @@ else:
                                 cur_start_24 = convert_time_value_to_24_str(sel_row["StartTime"])
                                 cur_end_24 = convert_time_value_to_24_str(sel_row["EndTime"])
 
-                                start_dt = datetime.combine(
-                                    sel_row["Day"], datetime.strptime(cur_start_24, "%H:%M:%S").time()
-                                )
+                                # Parse once
+                                start_time = datetime.strptime(cur_start_24, "%H:%M").time()
+                                end_time = datetime.strptime(cur_end_24, "%H:%M").time()
+
+                                # Combine with date
+                                start_dt = datetime.combine(sel_row["Day"], start_time)
+                                meeting_start_dt = start_dt
+                                meeting_end_dt = datetime.combine(sel_row["Day"], end_time)
+
                                 now = datetime.now()
 
-                                meeting_start_dt = datetime.combine(sel_row["Day"], datetime.strptime(cur_start_24, "%H:%M:%S").time())
-                                meeting_end_dt = datetime.combine(sel_row["Day"], datetime.strptime(cur_end_24, "%H:%M:%S").time())
 
                                 if now >= meeting_end_dt:
                                     # Meeting is finished
@@ -867,16 +869,33 @@ else:
                                     if action == "Update":
                                         with st.expander("Update Booking", expanded=True):
                                             with st.form(f"update_form_{booking_id}"):
+                                                # Format start/end times as HH:MM only
+                                                cur_start_24 = convert_time_value_to_24_str(sel_row["StartTime"])
+                                                cur_end_24 = convert_time_value_to_24_str(sel_row["EndTime"])
+
+
                                                 if is_ongoing:
                                                     st.text(f"Start Time (locked): {cur_start_24}")
-                                                    u_start = cur_start_24
+                                                    u_start = cur_start_24  # locked as HH:MM
                                                     u_day = sel_row["Day"]
                                                 else:
-                                                    u_start = st.text_input("Start Time (HH or HH:MM)", value=cur_start_24, key=f"u_start_{booking_id}")
-                                                    u_day = st.date_input("Day", value=sel_row["Day"], key=f"u_day_{booking_id}")
+                                                    u_start = st.text_input(
+                                                        "Start Time (HH or HH:MM)", 
+                                                        value=cur_start_24, 
+                                                        key=f"u_start_{booking_id}"
+                                                    )
+                                                    u_day = st.date_input(
+                                                        "Day", 
+                                                        value=sel_row["Day"], 
+                                                        key=f"u_day_{booking_id}"
+                                                    )
 
                                                 # End time is always editable
-                                                u_end = st.text_input("End Time (HH or HH:MM)", value=cur_end_24, key=f"u_end_{booking_id}")
+                                                u_end = st.text_input(
+                                                    "End Time (HH or HH:MM)", 
+                                                    value=cur_end_24, 
+                                                    key=f"u_end_{booking_id}"
+                                                )
                                                 u_agenda = st.text_input("Agenda", value=sel_row["Agenda"], key=f"u_agenda_{booking_id}")
 
                                                 conn = get_connection()
@@ -885,6 +904,7 @@ else:
                                                     conn,
                                                 )
                                                 conn.close()
+
                                                 u_person = st.selectbox(
                                                     "Person",
                                                     users["full_name"].tolist(),
@@ -893,24 +913,32 @@ else:
                                                 )
 
                                                 if st.form_submit_button("Apply Update"):
-                                                    # Smart conversion for editable fields
                                                     if not is_ongoing:
+                                                        # Future meeting → both start and end editable
                                                         new_start_time, new_end_time, err = smart_24_hour(u_start, u_end)
                                                         if err:
                                                             st.error(err)
                                                             st.stop()
                                                     else:
-                                                        new_start_time = datetime.strptime(u_start, "%H:%M:%S").time()
-                                                        new_end_time, _, err = smart_24_hour(u_start, u_end)  # end is editable
+                                                        # Ongoing meeting → start locked, only end editable
+                                                        locked_start = datetime.strptime(u_start, "%H:%M").time()
+                                                        _, new_end_time, err = smart_24_hour(u_start, u_end)
                                                         if err:
                                                             st.error(err)
                                                             st.stop()
+                                                        new_start_time = locked_start
 
                                                     start_dt = datetime.combine(u_day, new_start_time)
                                                     end_dt = datetime.combine(u_day, new_end_time)
 
                                                     # Overlap check
-                                                    if check_overlap(df_sel, u_day, new_start_time.strftime("%H:%M:%S"), new_end_time.strftime("%H:%M:%S"), exclude_id=booking_id):
+                                                    if check_overlap(
+                                                        df_sel,
+                                                        u_day,
+                                                        new_start_time.strftime("%H:%M:%S"),
+                                                        new_end_time.strftime("%H:%M:%S"),
+                                                        exclude_id=booking_id,
+                                                    ):
                                                         st.error("This time slot is already booked. Choose another.")
                                                     else:
                                                         update_booking(
@@ -925,7 +953,6 @@ else:
                                                         )
                                                         st.success("Booking updated successfully.")
                                                         st.rerun()
-
 
 
                                     elif action == "Delete":
