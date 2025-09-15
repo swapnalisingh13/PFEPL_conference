@@ -588,7 +588,7 @@ def rules_dialog():
 
     1. If you want to update or delete anything, please mail the receptionist.
     
-    2. Accepted time formats :  **9:00, 14:00, 16:15**.
+    2. Accepted time formats :  **9:00** or **2:00** for pm.
 
     3. Always keep a **5-minute buffer after a meeting** before adding a new one.
     """)
