@@ -529,6 +529,14 @@ def parse_time_input(raw: str) -> str:
 
     return f"{hour:02d}:{minute:02d}:00"
 
+def validate_time_input(time_str):
+    """
+    Validates time in HH.MM format.
+    Returns True if valid, else False
+    """
+    pattern = r"^(0?[0-9]|1[0-9]|2[0-3])\.[0-5][0-9]$"
+    return bool(re.match(pattern, time_str))
+
 # -------------------------
 # Streamlit UI
 # -------------------------
@@ -586,7 +594,7 @@ def rules_dialog():
 
     1. If you want to update or delete anything, please mail the receptionist.
     
-    2. Accepted time formats :  **9.00** or **2.00** for pm.
+    2. Accepted time formats :  **9.00**, **2.00**, **5:30**.
 
     3. Always keep a **5-minute buffer after a meeting** before adding a new one.
     """)
@@ -772,6 +780,10 @@ else:
                         # Validation happens only when Save is clicked
                         if not c_start_input or not c_end_input:
                             st.error("Please enter both start and end times.")
+                        elif not validate_time_input(c_start_input):
+                            st.error("Invalid start time! Use HH.MM with 2-digit minutes (e.g., 11.30).")
+                        elif not validate_time_input(c_end_input):
+                            st.error("Invalid end time! Use HH.MM with 2-digit minutes (e.g., 11.30).")
                         else:
                             new_start_time, new_end_time, err = smart_24_hour(c_start_input, c_end_input)
                             if err:
@@ -933,6 +945,12 @@ else:
 
                                                     # Convert user inputs from HH.MM to datetime.time
                                                     if not is_ongoing:
+                                                        if not validate_time_input(u_start):
+                                                            st.error("Invalid start time! Use HH.MM with 2-digit minutes (e.g., 11.30).")
+                                                            st.stop()
+                                                        if not validate_time_input(u_end):
+                                                            st.error("Invalid end time! Use HH.MM with 2-digit minutes (e.g., 11.30).")
+                                                            st.stop()
                                                         # Future meeting → both start and end editable
                                                         new_start_time, new_end_time, err = smart_24_hour(u_start, u_end)
                                                         if err:
@@ -940,11 +958,16 @@ else:
                                                             st.stop()
                                                     else:
                                                         # Ongoing meeting → start locked, only end editable
+                                                        if not validate_time_input(u_end):
+                                                            st.error("Invalid end time! Use HH.MM with 2-digit minutes (e.g., 11.30).")
+                                                            st.stop()
                                                         locked_start = datetime.strptime(u_start.replace(".", ":"), "%H:%M").time()
+
                                                         _, new_end_time, err = smart_24_hour(u_start, u_end)
                                                         if err:
                                                             st.error(err)
                                                             st.stop()
+
                                                         new_start_time = locked_start
 
                                                     start_dt = datetime.combine(u_day, new_start_time)
@@ -973,7 +996,6 @@ else:
                                                         )
                                                         st.success("Booking updated successfully.")
                                                         st.rerun()
-
 
 
                                     elif action == "Delete":
