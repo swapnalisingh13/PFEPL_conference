@@ -485,9 +485,9 @@ def smart_24_hour(start_input, end_input):
 
         # Check allowed business hours
         if not (MIN_HOUR <= sh <= MAX_HOUR):
-            return None, None, "Start time must be between 09:00 and 20:59"
+            return None, None, "Start time must be between 09:00 am to 8:58 pm"
         if not (MIN_HOUR <= eh <= MAX_HOUR):
-            return None, None, "End time must be between 09:00 and 20:59"
+            return None, None, "End time must be between 09:00 and 8:59"
 
         start_time = time(sh, sm)
         end_time = time(eh, em)
