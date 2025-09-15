@@ -454,15 +454,28 @@ def parse_time_input(raw: str) -> str:
       - "4:30pm"
       - "04:30 PM"
       - "16:45"
+      - "4.30pm"
+      - "16.45"
     Returns "HH:MM:SS" if valid, else raises ValueError.
     """
-    if not raw or ":" not in raw:
-        raise ValueError("Time must be entered in format like 4:30pm or 16:45")
+    if not raw:
+        raise ValueError("Time input is empty")
 
     raw = raw.strip().lower().replace(" ", "")
-    match = re.match(r"^(\d{1,2}):(\d{2})(am|pm)?$", raw)
+
+    # Must contain either ":" OR "." but not both
+    if (":" in raw) and ("." in raw):
+        raise ValueError("Use either ':' or '.' as a separator, not both")
+
+    sep = ":" if ":" in raw else "."
+    if sep not in raw:
+        raise ValueError("Time must be entered with ':' or '.' (e.g., 4:30pm or 16.45)")
+
+    # Regex for hh:mm[am|pm] OR hh.mm[am|pm]
+    pattern = rf"^(\d{{1,2}}){sep}(\d{{2}})(am|pm)?$"
+    match = re.match(pattern, raw)
     if not match:
-        raise ValueError("Invalid time format. Use hh:mm with optional AM/PM")
+        raise ValueError("Invalid time format. Use hh:mm or hh.mm with optional AM/PM")
 
     hour, minute, ampm = match.groups()
     hour = int(hour)
@@ -486,6 +499,7 @@ def parse_time_input(raw: str) -> str:
     return f"{hour:02d}:{minute:02d}:00"
 
 
+
 # -------------------------
 # Streamlit time picker
 # -------------------------
@@ -506,7 +520,7 @@ def time_picker(label, key_prefix, default_24=None):
     raw_input = st.text_input(label, value=default_val, key=f"{key_prefix}_time")
 
     if raw_input.strip() == "":
-        st.warning(f"{label} - Please enter a time (e.g., 4:30pm or 16:45).")
+        st.warning(f"{label} - Please enter a time (e.g., 4:30pm, 4.30 pm or 16:45).")
         return None
 
     try:
