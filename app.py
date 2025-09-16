@@ -23,7 +23,14 @@ def get_connection():
 # Room mapping
 # -------------------------
 def room_name_to_number(room_name):
-    return 1 if room_name == "Small Conference" else 2
+    if room_name == "Small Conference":
+        return 1
+    elif room_name == "Big Conference":
+        return 2
+    elif room_name == "7th Floor Conference":
+        return 3
+    else:
+        raise ValueError("Unknown room name")
 
 # -------------------------
 # Login helpers
@@ -47,7 +54,15 @@ def is_admin(username):
 def has_clash(day, start_24, end_24, room, exclude_id=None):
     conn = get_connection()
     cursor = conn.cursor()
-    table = "meeting_room1_bookings" if room == 1 else "meeting_room2_bookings"
+    #table = "meeting_room1_bookings" if room == 1 else "meeting_room2_bookings"
+    if room == 1:
+        table = "meeting_room1_bookings"
+    elif room == 2:
+        table = "meeting_room2_bookings"
+    elif room == 3:
+        table = "meeting_room3_bookings"
+    else:
+        raise ValueError("Invalid room number")
     query = f"""
         SELECT Id FROM {table}
         WHERE Day = %s
@@ -70,7 +85,7 @@ def delete_past_meetings():
     conn = get_connection()
     cursor = conn.cursor()
     now = datetime.now()
-    for table in ["meeting_room1_bookings", "meeting_room2_bookings"]:
+    for table in ["meeting_room1_bookings", "meeting_room2_bookings", "meeting_room3_bookings"]:
         query = f"""
             DELETE FROM {table}
             WHERE Day < %s OR (Day = %s AND EndTime < %s)
@@ -129,7 +144,13 @@ def insert_booking(day, start_24, end_24, agenda, person, room, username):
 
     conn = get_connection()
     cursor = conn.cursor()
-    table = "meeting_room1_bookings" if room_number == 1 else "meeting_room2_bookings"
+    #table = "meeting_room1_bookings" if room_number == 1 else "meeting_room2_bookings"
+    if room_number == 1:
+        table = "meeting_room1_bookings"
+    elif room_number == 2:
+        table = "meeting_room2_bookings"
+    elif room_number == 3:
+        table = "meeting_room3_bookings"
     q = f"INSERT INTO {table} (Day, StartTime, EndTime, Agenda, PersonName) VALUES (%s,%s,%s,%s,%s)"
     
     try:
@@ -158,7 +179,12 @@ def update_booking(booking_id, day, start_24, end_24, agenda, person, room, user
     room_number = room_name_to_number(room)
     conn = get_connection()
     cursor = conn.cursor(dictionary=True)
-    table = "meeting_room1_bookings" if room_number == 1 else "meeting_room2_bookings"
+    if room_number == 1:
+        table = "meeting_room1_bookings"
+    elif room_number == 2:
+        table = "meeting_room2_bookings"
+    elif room_number == 3:
+        table = "meeting_room3_bookings"
 
     # Fetch old booking
     cursor.execute(f"SELECT * FROM {table} WHERE Id=%s", (booking_id,))
@@ -182,6 +208,24 @@ def update_booking(booking_id, day, start_24, end_24, agenda, person, room, user
         conn.close()
         return
 
+    # NEW VALIDATION: prevent moving booking into the past
+    try:
+        new_start_obj = datetime.strptime(start_24, "%H:%M:%S").time()
+        new_end_obj = datetime.strptime(end_24, "%H:%M:%S").time()
+    except ValueError:
+        st.error("Invalid time format for update.")
+        cursor.close()
+        conn.close()
+        return
+
+    new_start_dt = datetime.combine(day, new_start_obj)
+    new_end_dt = datetime.combine(day, new_end_obj)
+
+    if new_end_dt <= now:
+        st.error("Cannot update booking into the past. Choose a future time.")
+        cursor.close()
+        conn.close()
+        return
 
     # Check if ongoing
     is_ongoing = start_dt <= now <= end_dt
@@ -245,7 +289,13 @@ def delete_booking(booking_id, room, username, reason_text):
     room_number = room_name_to_number(room)
     conn = get_connection()
     cursor = conn.cursor(dictionary=True)
-    table = "meeting_room1_bookings" if room_number == 1 else "meeting_room2_bookings"
+    #table = "meeting_room1_bookings" if room_number == 1 else "meeting_room2_bookings"
+    if room_number == 1:
+        table = "meeting_room1_bookings"
+    elif room_number == 2:
+        table = "meeting_room2_bookings"
+    elif room_number == 3:
+        table = "meeting_room3_bookings"
     cursor.execute(f"SELECT * FROM {table} WHERE Id=%s", (booking_id,))
     row = cursor.fetchone()
     if not row:
@@ -317,13 +367,20 @@ def load_bookings(selected_day=None):
         {filter_clause}
         ORDER BY StartTime
     """
+    q3 = f"""
+        SELECT Id, Day, StartTime, EndTime, Agenda, PersonName
+        FROM meeting_room3_bookings
+        {filter_clause}
+        ORDER BY StartTime
+    """
 
     df1 = pd.read_sql(q1, conn, params=params)
     df2 = pd.read_sql(q2, conn, params=params)
+    df3 = pd.read_sql(q3, conn, params=params)
 
     conn.close()
 
-    for df in (df1, df2):
+    for df in (df1, df2, df3):
         if not df.empty:
             df["Day"] = pd.to_datetime(df["Day"], errors="coerce").dt.date
             df["StartTimeStr"] = df["StartTime"].apply(lambda x: str(x)[-8:] if pd.notna(x) else "00:00:00")
@@ -331,7 +388,7 @@ def load_bookings(selected_day=None):
             df["Start Display"] = pd.to_datetime(df["StartTimeStr"], format="%H:%M:%S", errors="coerce").dt.strftime("%I:%M %p")
             df["End Display"] = pd.to_datetime(df["EndTimeStr"], format="%H:%M:%S", errors="coerce").dt.strftime("%I:%M %p")
 
-    return df1, df2
+    return df1, df2, df3
 
 
 # -------------------------
@@ -355,6 +412,13 @@ def load_history(year, month):
           AND (Day < %s OR (Day = %s AND EndTime < %s))
         ORDER BY Day, StartTime
     """
+    q3 = """
+        SELECT Id, Day, StartTime, EndTime, Agenda, PersonName
+        FROM meeting_room3_bookings
+        WHERE YEAR(Day) = %s AND MONTH(Day) = %s
+          AND (Day < %s OR (Day = %s AND EndTime < %s))
+        ORDER BY Day, StartTime
+    """
 
     params = (
         year, month,
@@ -365,9 +429,10 @@ def load_history(year, month):
 
     df1 = pd.read_sql(q1, conn, params=params)
     df2 = pd.read_sql(q2, conn, params=params)
+    df3 = pd.read_sql(q3, conn, params=params)
     conn.close()
 
-    for df in (df1, df2):
+    for df in (df1, df2, df3):
         if not df.empty:
             df["Day"] = pd.to_datetime(df["Day"], errors="coerce")
             df["Date"] = df["Day"].dt.strftime("%d-%m-%Y")
@@ -379,7 +444,7 @@ def load_history(year, month):
             df["Start Display"] = pd.to_datetime(df["StartTimeStr"], format="%H:%M:%S", errors="coerce").dt.strftime("%I:%M %p")
             df["End Display"]   = pd.to_datetime(df["EndTimeStr"], format="%H:%M:%S", errors="coerce").dt.strftime("%I:%M %p")
 
-    return df1, df2
+    return df1, df2, df3
 
 # -------------------------
 # Helpers: time conversion & serialization
@@ -718,7 +783,6 @@ else:
                 rules_dialog()
                 st.session_state.show_rules_popup = False
 
-
             selected_day = st.session_state.get("selected_day", datetime.now().date())
             selected_day = st.date_input("Select Date", value=selected_day, key="view_date")
             st.session_state.selected_day = selected_day
@@ -726,7 +790,7 @@ else:
             if not selected_day:
                 st.info("Please select a date to view bookings.")
             else:
-                df1, df2 = load_bookings(selected_day)
+                df1, df2, df3 = load_bookings(selected_day)
 
                 st.markdown("### Small Conference")
                 if df1.empty:
@@ -743,6 +807,14 @@ else:
                     disp2 = df2[["Start Display", "End Display", "Agenda", "PersonName"]].copy()
                     disp2.columns = ["Start", "End", "Agenda", "Person"]
                     st.dataframe(disp2, use_container_width=True)
+                
+                st.markdown("### 7th Floor Conference")
+                if df3.empty:
+                    st.info("No bookings for 7th Floor Conference on this date.")
+                else:
+                    disp3 = df3[["Start Display", "End Display", "Agenda", "PersonName"]].copy()
+                    disp3.columns = ["Start", "End", "Agenda", "Person"]
+                    st.dataframe(disp3, use_container_width=True)
 
                 # ---------------- Create Booking ----------------
                 if st.button("Create Booking", key="toggle_create"):
@@ -758,7 +830,7 @@ else:
                     st.markdown("---")
                     st.subheader("Create Booking")
 
-                    c_room = st.selectbox("Room", ["Small Conference", "Big Conference"], key="c_room")
+                    c_room = st.selectbox("Room", ["Small Conference", "Big Conference", "7th Floor Conference"], key="c_room")
                     c_day = st.date_input("Day", value=selected_day, key="c_day")
                     c_start_input = st.text_input("Start Time (HH or HH.MM)", key="c_start_input")
                     c_end_input = st.text_input("End Time (HH or HH.MM)", key="c_end_input")
@@ -793,7 +865,16 @@ else:
                                 new_end_dt = datetime.combine(c_day, new_end_time)
 
                                 # Overlap check
-                                df_room = df1 if c_room == "Small Conference" else df2
+                                #df_room = df1 if c_room == "Small Conference" else df2
+                                if c_room == "Small Conference":
+                                    df_room = df1
+                                elif c_room == "Big Conference":
+                                    df_room = df2
+                                elif c_room == "7th Floor Conference":
+                                    df_room = df3
+                                else :
+                                    raise ValueError("Invalid room")
+
                                 if check_overlap(df_room, c_day, new_start_time.strftime("%H:%M:%S"), new_end_time.strftime("%H:%M:%S")):
                                     st.error("This time slot is already booked in the selected room. Choose another.")
                                 else:
@@ -825,9 +906,15 @@ else:
                         st.subheader("Manage Bookings (admin)")
 
                         room_choice = st.selectbox(
-                            "Room to manage", ["Small Conference", "Big Conference"], key="manage_room"
+                            "Room to manage", ["Small Conference", "Big Conference", "7th Floor Conference"], key="manage_room"
                         )
-                        df_sel = df1 if room_name_to_number(room_choice) == 1 else df2
+                        #df_sel = df1 if room_name_to_number(room_choice) == 1 else df2
+                        if room_name_to_number(room_choice) == 1:
+                            df_sel = df1
+                        elif room_name_to_number(room_choice) == 2:
+                            df_sel = df2
+                        elif room_name_to_number(room_choice) == 3:
+                            df_sel = df3
 
                         if df_sel.empty:
                             st.info(f"No bookings for {room_choice} on this date.")
@@ -1023,7 +1110,16 @@ else:
                                                     cur = conn.cursor()
 
                                                     # Delete booking
-                                                    table = "meeting_room1_bookings" if room_name_to_number(room_choice) == 1 else "meeting_room2_bookings"
+                                                    #table = "meeting_room1_bookings" if room_name_to_number(room_choice) == 1 else "meeting_room2_bookings"
+                                                    if room_name_to_number(room_choice) == 1:
+                                                        table = "meeting_room1_bookings"
+                                                    elif room_name_to_number(room_choice) == 2:
+                                                        table = "meeting_room2_bookings"
+                                                    elif room_name_to_number(room_choice) == 3:
+                                                        table = "meeting_room3_bookings"
+                                                    else:
+                                                        raise ValueError("Invalid room")
+
                                                     # ✅ Insert into deleted_meetings BEFORE deleting
                                                     cur.execute(
                                                         """
@@ -1084,7 +1180,7 @@ else:
             )
 
             # ---------------- SMALL CONFERENCE ----------------
-            df1, df2 = load_history(year, month_idx + 1)
+            df1, df2, df3 = load_history(year, month_idx + 1)
 
             st.markdown(f"### Small Conference - {month_names[month_idx]} {year}")
             if df1.empty:
@@ -1106,6 +1202,18 @@ else:
                 disp2["Day"] = pd.to_datetime(disp2["Day"]).dt.strftime("%d-%m-%Y")
                 disp2.columns = ["Date", "Start", "End", "Agenda", "Person"]
                 st.dataframe(disp2, use_container_width=True)
+
+            # ---------------- 7th Floor Conference ----------------
+
+            st.markdown(f"### 7th Floor Conference - {month_names[month_idx]} {year}")
+            if df3.empty:
+                st.info(f"No bookings for 7th Floor Conference in {month_names[month_idx]} {year}")
+            else:
+                st.write(f"Total meetings: {len(df3)}")
+                disp3 = df3[["Day", "Start Display", "End Display", "Agenda", "PersonName"]].copy()
+                disp3["Day"] = pd.to_datetime(disp3["Day"]).dt.strftime("%d-%m-%Y")
+                disp3.columns = ["Date", "Start", "End", "Agenda", "Person"]
+                st.dataframe(disp3, use_container_width=True)
 
             # ======================= DELETED MEETINGS =======================
             st.markdown(f"### Deleted Meetings - {month_names[month_idx]} {year}")
@@ -1138,7 +1246,7 @@ else:
                 )
 
                 # Map room numbers to names
-                room_map = {1: "Small Conference", 2: "Big Conference"}
+                room_map = {1: "Small Conference", 2: "Big Conference", 3:"7th Floor Conference"}
                 deleted_df["room"] = deleted_df["room"].map(room_map)
 
                 # Reorder & rename
