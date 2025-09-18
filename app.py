@@ -113,10 +113,15 @@ def insert_booking(day, start_24, end_24, agenda, person_name, room, username, u
     meeting_start_dt = datetime.combine(day, datetime.strptime(start_24, "%H:%M:%S").time())
     meeting_end_dt = datetime.combine(day, datetime.strptime(end_24, "%H:%M:%S").time())
     now = datetime.now()
-    
-    if meeting_end_dt <= now or meeting_start_dt < now:
-        st.error("Cannot create a booking in the past.")
+
+    # 🚫 Block any booking whose start OR end is before NOW for same-day or past-day
+    if day < now.date():
+        st.error("Cannot create a booking on a past date.")
         return None
+    if meeting_start_dt <= now or meeting_end_dt <= now:
+        st.error("Cannot create a booking in the past (today’s earlier times included).")
+        return None
+
 
     room_number = room_name_to_number(room)
     if has_clash(day, start_24, end_24, room_number):
@@ -387,25 +392,36 @@ def delete_booking(booking_id, room, username, user_id, reason_text):
 # Load bookings
 # -------------------------
 def load_bookings(selected_day=None):
+    """
+    Load future/ongoing bookings only:
+    - Past dates return empty DataFrames.
+    - Today's date returns only meetings whose combined Day+EndTime >= NOW().
+    - Future dates return all meetings.
+    """
     conn = get_connection()
     now = datetime.now()
+    now_dt_str = now.strftime("%Y-%m-%d %H:%M:%S")
     params = []
-    filter_clause = ""
 
+    # --- Decide filter clause ---
     if selected_day:
-        if selected_day == now.date():
-            filter_clause = "WHERE Day = %s AND EndTime >= %s"
-            params = (selected_day.strftime("%Y-%m-%d"), now.strftime("%H:%M:%S"))
-        elif selected_day > now.date():
-            filter_clause = "WHERE Day = %s"
-            params = (selected_day.strftime("%Y-%m-%d"),)
-        else:
+        if selected_day < now.date():
+            # Past date → no data
             conn.close()
             return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+        elif selected_day == now.date():
+            # Today → only where Day+EndTime >= NOW
+            filter_clause = "WHERE CONCAT(Day,' ',EndTime) >= %s"
+            params = (now_dt_str,)
+        else:  # Future date → show all for that date
+            filter_clause = "WHERE Day = %s"
+            params = (selected_day.strftime("%Y-%m-%d"),)
     else:
-        filter_clause = "WHERE Day = %s AND EndTime >= %s"
-        params = (now.date(), now.strftime("%H:%M:%S"))
+        # Default to "today ongoing/future"
+        filter_clause = "WHERE CONCAT(Day,' ',EndTime) >= %s"
+        params = (now_dt_str,)
 
+    # --- Queries ---
     q1 = f"""
         SELECT Id, Day, StartTime, EndTime, Agenda, PersonName, CreatedByUserId
         FROM meeting_room1_bookings
@@ -425,19 +441,29 @@ def load_bookings(selected_day=None):
         ORDER BY StartTime
     """
 
+    # --- Load into dataframes ---
     df1 = pd.read_sql(q1, conn, params=params)
     df2 = pd.read_sql(q2, conn, params=params)
     df3 = pd.read_sql(q3, conn, params=params)
-
     conn.close()
 
+    # --- Add display columns ---
     for df in (df1, df2, df3):
         if not df.empty:
+            # Ensure Day is a date
             df["Day"] = pd.to_datetime(df["Day"], errors="coerce").dt.date
+
+            # Extract time strings cleanly
             df["StartTimeStr"] = df["StartTime"].apply(lambda x: str(x)[-8:] if pd.notna(x) else "00:00:00")
             df["EndTimeStr"] = df["EndTime"].apply(lambda x: str(x)[-8:] if pd.notna(x) else "00:00:00")
-            df["Start Display"] = pd.to_datetime(df["StartTimeStr"], format="%H:%M:%S", errors="coerce").dt.strftime("%I:%M %p")
-            df["End Display"] = pd.to_datetime(df["EndTimeStr"], format="%H:%M:%S", errors="coerce").dt.strftime("%I:%M %p")
+
+            # Convert to nice AM/PM
+            df["Start Display"] = pd.to_datetime(
+                df["StartTimeStr"], format="%H:%M:%S", errors="coerce"
+            ).dt.strftime("%I:%M %p")
+            df["End Display"] = pd.to_datetime(
+                df["EndTimeStr"], format="%H:%M:%S", errors="coerce"
+            ).dt.strftime("%I:%M %p")
 
     return df1, df2, df3
 
