@@ -114,11 +114,8 @@ def insert_booking(day, start_24, end_24, agenda, person_name, room, username, u
     meeting_end_dt = datetime.combine(day, datetime.strptime(end_24, "%H:%M:%S").time())
     now = datetime.now()
     
-    if meeting_start_dt < now:
-        st.error("Cannot create a booking with start time in the past.")
-        return None
-    if meeting_end_dt < now:
-        st.error("Cannot create a booking that already ended.")
+    if meeting_end_dt <= now or meeting_start_dt < now:
+        st.error("Cannot create a booking in the past.")
         return None
 
     room_number = room_name_to_number(room)
