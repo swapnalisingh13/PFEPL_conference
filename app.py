@@ -857,7 +857,7 @@ else:
 
         # ======================= HOME PAGE =======================
         if st.session_state.page == "Home":
-        # Show rules popup only once per login for normal users 
+            # Show rules popup only once per login for normal users 
             if st.session_state.is_admin and st.session_state.show_admin_rules_popup:
                 admin_rules_dialog()
                 # reset so it won't appear again on refresh
@@ -867,39 +867,62 @@ else:
                 rules_dialog()
                 st.session_state.show_rules_popup = False
 
+            # Person name as before
             person_name = f"{st.session_state.user['first_name']} {st.session_state.user['last_name'] or ''}".strip()
-            selected_day = st.session_state.get("selected_day", datetime.now().date())
-            selected_day = st.date_input("Select Date", value=selected_day, key="view_date")
-            st.session_state.selected_day = selected_day
 
-            if not selected_day:
-                st.info("Please select a date to view bookings.")
+            # === Date input with reset logic ===
+            today = datetime.now().date()
+            old_selected_day = st.session_state.get("selected_day", today)
+
+            new_selected_day = st.date_input(
+                "Select Date",
+                value=old_selected_day,
+                min_value=today,  # disallow picking past dates
+                key="view_date"
+            )
+
+            # initialize tracking variable once
+            if "last_selected_day" not in st.session_state:
+                st.session_state.last_selected_day = new_selected_day
+
+            # If user changed date → reset UI state (manage/create/pick)
+            if new_selected_day != st.session_state.last_selected_day:
+                st.session_state.show_manage = False
+                st.session_state.show_create = False
+                st.session_state.pop("pick_booking", None)   # clear selected booking
+                st.session_state.pop("manage_room", None)    # clear manage room selection
+                st.session_state.last_selected_day = new_selected_day
+
+            st.session_state.selected_day = new_selected_day
+
+            # === Now load bookings for this day ===
+            df1, df2, df3 = load_bookings(new_selected_day)
+
+            # === Display bookings ===
+            st.markdown("### Small Conference")
+            if df1.empty:
+                st.info("No bookings for Small Conference on this date.")
             else:
-                df1, df2, df3 = load_bookings(selected_day)
+                disp1 = df1[["Start Display", "End Display", "Agenda", "PersonName"]].copy()
+                disp1.columns = ["Start", "End", "Agenda", "Person"]
+                st.dataframe(disp1, use_container_width=True)
 
-                st.markdown("### Small Conference")
-                if df1.empty:
-                    st.info("No bookings for Small Conference on this date.")
-                else:
-                    disp1 = df1[["Start Display", "End Display", "Agenda", "PersonName"]].copy()
-                    disp1.columns = ["Start", "End", "Agenda", "Person"]
-                    st.dataframe(disp1, use_container_width=True)
+            st.markdown("### Big Conference")
+            if df2.empty:
+                st.info("No bookings for Big Conference on this date.")
+            else:
+                disp2 = df2[["Start Display", "End Display", "Agenda", "PersonName"]].copy()
+                disp2.columns = ["Start", "End", "Agenda", "Person"]
+                st.dataframe(disp2, use_container_width=True)
+            
+            st.markdown("### 7th Floor Conference")
+            if df3.empty:
+                st.info("No bookings for 7th Floor Conference on this date.")
+            else:
+                disp3 = df3[["Start Display", "End Display", "Agenda", "PersonName"]].copy()
+                disp3.columns = ["Start", "End", "Agenda", "Person"]
+                st.dataframe(disp3, use_container_width=True)
 
-                st.markdown("### Big Conference")
-                if df2.empty:
-                    st.info("No bookings for Big Conference on this date.")
-                else:
-                    disp2 = df2[["Start Display", "End Display", "Agenda", "PersonName"]].copy()
-                    disp2.columns = ["Start", "End", "Agenda", "Person"]
-                    st.dataframe(disp2, use_container_width=True)
-                
-                st.markdown("### 7th Floor Conference")
-                if df3.empty:
-                    st.info("No bookings for 7th Floor Conference on this date.")
-                else:
-                    disp3 = df3[["Start Display", "End Display", "Agenda", "PersonName"]].copy()
-                    disp3.columns = ["Start", "End", "Agenda", "Person"]
-                    st.dataframe(disp3, use_container_width=True)
 
                 # ---------------- Create Booking ----------------
                 if st.button("Create Booking", key="toggle_create"):
