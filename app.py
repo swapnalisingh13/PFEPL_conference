@@ -401,25 +401,24 @@ def load_bookings(selected_day=None):
     conn = get_connection()
     now = datetime.now()
     now_dt_str = now.strftime("%Y-%m-%d %H:%M:%S")
-    params = []
 
-    # --- Decide filter clause ---
+    # --- Decide filter clause and params ---
     if selected_day:
         if selected_day < now.date():
             # Past date → no data
             conn.close()
             return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
         elif selected_day == now.date():
-            # Today → only where Day+EndTime >= NOW
-            filter_clause = "WHERE CONCAT(Day,' ',EndTime) >= %s"
-            params = (now_dt_str,)
-        else:  # Future date → show all for that date
+            # Today → restrict to Day = today AND EndTime >= now
+            filter_clause = "WHERE Day = %s AND CONCAT(Day,' ',EndTime) >= %s"
+            params = (selected_day.strftime("%Y-%m-%d"), now_dt_str)
+        else:  # Future date → restrict to Day exactly
             filter_clause = "WHERE Day = %s"
             params = (selected_day.strftime("%Y-%m-%d"),)
     else:
         # Default to "today ongoing/future"
-        filter_clause = "WHERE CONCAT(Day,' ',EndTime) >= %s"
-        params = (now_dt_str,)
+        filter_clause = "WHERE Day = %s AND CONCAT(Day,' ',EndTime) >= %s"
+        params = (now.date().strftime("%Y-%m-%d"), now_dt_str)
 
     # --- Queries ---
     q1 = f"""
@@ -441,7 +440,6 @@ def load_bookings(selected_day=None):
         ORDER BY StartTime
     """
 
-    # --- Load into dataframes ---
     df1 = pd.read_sql(q1, conn, params=params)
     df2 = pd.read_sql(q2, conn, params=params)
     df3 = pd.read_sql(q3, conn, params=params)
@@ -466,6 +464,7 @@ def load_bookings(selected_day=None):
             ).dt.strftime("%I:%M %p")
 
     return df1, df2, df3
+
 
 
 # -------------------------
