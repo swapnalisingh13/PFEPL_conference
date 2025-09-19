@@ -925,22 +925,30 @@ else:
 
 
             # ---------------- Create Booking ----------------
+            # Put this AFTER you've displayed df1, df2, df3 (i.e., outside their if/else blocks)
+            st.markdown("---")
             if st.button("Create Booking", key="toggle_create"):
-                # flip the flag
+                # Flip the flag
                 st.session_state.show_create = not st.session_state.get("show_create", False)
                 st.session_state.show_manage = False   # always close manage if toggling create
                 st.session_state.pop("booking_msg", None)
 
             # now render form based on flag (not button return)
             if st.session_state.get("show_create", False):
-                st.markdown("---")
                 st.subheader("Create Booking")
 
-                c_room = st.selectbox("Room", ["Small Conference", "Big Conference", "7th Floor Conference"], key="c_room")
-                c_day = st.date_input("Day", value=selected_day, key="c_day")
+                c_room = st.selectbox(
+                    "Room",
+                    ["Small Conference", "Big Conference", "7th Floor Conference"],
+                    key="c_room"
+                )
+
+                # Use the date we tracked earlier
+                c_day = st.date_input("Day", value=st.session_state.selected_day, key="c_day")
+
                 c_start_input = st.text_input("Start Time (HH or HH.MM)", key="c_start_input")
-                c_end_input = st.text_input("End Time (HH or HH.MM)", key="c_end_input")
-                c_agenda = st.text_input("Agenda", key="c_agenda")
+                c_end_input   = st.text_input("End Time (HH or HH.MM)",   key="c_end_input")
+                c_agenda      = st.text_input("Agenda", key="c_agenda")
                 st.text(f"Person: {person_name}")
 
                 col1, col2 = st.columns([1, 1])
@@ -960,35 +968,41 @@ else:
                                 st.error(err)
                             else:
                                 new_start_dt = datetime.combine(c_day, new_start_time)
-                                new_end_dt = datetime.combine(c_day, new_end_time)
-
-                                # Overlap check
-                                #df_room = df1 if c_room == "Small Conference" else df2
-                                if c_room == "Small Conference":
-                                    df_room = df1
-                                elif c_room == "Big Conference":
-                                    df_room = df2
-                                elif c_room == "7th Floor Conference":
-                                    df_room = df3
-                                else :
-                                    raise ValueError("Invalid room")
-
-                                if check_overlap(df_room, c_day, new_start_time.strftime("%H:%M:%S"), new_end_time.strftime("%H:%M:%S")):
-                                    st.error("This time slot is already booked in the selected room. Choose another.")
+                                new_end_dt   = datetime.combine(c_day, new_end_time)
+                                if new_end_dt <= new_start_dt:
+                                    st.error("End time must be after start time.")
                                 else:
-                                    insert_booking(
+                                    # Choose the room dataframe for overlap check
+                                    if c_room == "Small Conference":
+                                        df_room = df1
+                                    elif c_room == "Big Conference":
+                                        df_room = df2
+                                    elif c_room == "7th Floor Conference":
+                                        df_room = df3
+                                    else:
+                                        raise ValueError("Invalid room")
+
+                                    if check_overlap(
+                                        df_room,
                                         c_day,
                                         new_start_time.strftime("%H:%M:%S"),
-                                        new_end_time.strftime("%H:%M:%S"),
-                                        c_agenda,
-                                        person_name,
-                                        c_room,
-                                        st.session_state.user['username'],
-                                        st.session_state.user['id']
-                                    )
-                                    #st.success("Booking created successfully.")
-                                    st.session_state.show_create = False
-                                    st.rerun()
+                                        new_end_time.strftime("%H:%M:%S")
+                                    ):
+                                        st.error("This time slot is already booked in the selected room. Choose another.")
+                                    else:
+                                        insert_booking(
+                                            c_day,
+                                            new_start_time.strftime("%H:%M:%S"),
+                                            new_end_time.strftime("%H:%M:%S"),
+                                            c_agenda,
+                                            person_name,
+                                            c_room,
+                                            st.session_state.user['username'],
+                                            st.session_state.user['id']
+                                        )
+                                        # st.success("Booking created successfully.")
+                                        st.session_state.show_create = False
+                                        st.rerun()
 
                 with col2:
                     if st.button("Close Create", key="cancel_create"):
@@ -996,269 +1010,241 @@ else:
                         st.rerun()
 
 
-                # ---------------- Manage Bookings (Availabl to all with limited access except admin) ----------------
-                if st.button("Manage Bookings", key="toggle_manage"):
-                    st.session_state.show_manage = not st.session_state.get("show_manage", False)
-                    st.session_state.show_create = False   # always close create if toggling manage
-                    st.session_state.pop("booking_msg", None)  # clear old messages
+            # ---------------- Manage Bookings (Available to all; limited access unless admin) ----------------
+            st.markdown("---")
+            if st.button("Manage Bookings", key="toggle_manage"):
+                st.session_state.show_manage = not st.session_state.get("show_manage", False)
+                st.session_state.show_create = False   # always close create if toggling manage
+                st.session_state.pop("booking_msg", None)  # clear old messages
 
-                if st.session_state.show_manage:
-                    st.markdown("---")
-                    #st.subheader("Manage Bookings (admin)")
-                    st.subheader("Manage Bookings" + (" (Admin)" if st.session_state.is_admin else " (Your Bookings)"))
+            if st.session_state.get("show_manage", False):
+                st.subheader("Manage Bookings" + (" (Admin)" if st.session_state.is_admin else " (Your Bookings)"))
 
-                    room_choice = st.selectbox(
-                        "Room to manage", ["Small Conference", "Big Conference", "7th Floor Conference"], key="manage_room"
+                room_choice = st.selectbox(
+                    "Room to manage",
+                    ["Small Conference", "Big Conference", "7th Floor Conference"],
+                    key="manage_room"
+                )
+
+                # Choose room df
+                rn = room_name_to_number(room_choice)
+                if rn == 1:
+                    df_sel = df1
+                elif rn == 2:
+                    df_sel = df2
+                else:
+                    df_sel = df3
+
+                # Non-admin users see only their own bookings
+                if not st.session_state.is_admin and not df_sel.empty:
+                    df_sel = df_sel[df_sel['CreatedByUserId'] == st.session_state.user['id']]
+
+                if df_sel.empty:
+                    st.info(f"No bookings for {room_choice} on this date."
+                            + (" (or none you own)" if not st.session_state.is_admin else ""))
+                else:
+                    df_sel = df_sel.copy()
+                    df_sel["label"] = df_sel.apply(
+                        lambda r: f"{r['Id']} | {r['Start Display']} - {r['End Display']} | {r['PersonName']} | {r['Agenda']}",
+                        axis=1,
                     )
-                    #df_sel = df1 if room_name_to_number(room_choice) == 1 else df2
-                    if room_name_to_number(room_choice) == 1:
-                        df_sel = df1
-                    elif room_name_to_number(room_choice) == 2:
-                        df_sel = df2
-                    elif room_name_to_number(room_choice) == 3:
-                        df_sel = df3
+                    pick = st.selectbox(
+                        "Select booking",
+                        ["Select a booking"] + df_sel["label"].tolist(),
+                        key="pick_booking",
+                    )
 
-                    if not st.session_state.is_admin:
-                        df_sel = df_sel[df_sel['CreatedByUserId'] == st.session_state.user['id']]
+                    if pick != "Select a booking":
+                        booking_id = int(pick.split("|")[0].strip())
+                        sel_row = df_sel[df_sel["Id"] == booking_id].iloc[0]
 
-                    if df_sel.empty:
-                        st.info(f"No bookings for {room_choice} on this date." + (" (or none you own)" if not st.session_state.is_admin else ""))
-                    else:
-                        df_sel = df_sel.copy()
-                        df_sel["label"] = df_sel.apply(
-                            lambda r: f"{r['Id']} | {r['Start Display']} - {r['End Display']} | {r['PersonName']} | {r['Agenda']}",
-                            axis=1,
-                        )
-                        pick = st.selectbox(
-                            "Select booking",
-                            ["Select a booking"] + df_sel["label"].tolist(),
-                            key="pick_booking",
-                        )
+                        cur_start_24 = convert_time_value_to_24_str(sel_row["StartTime"])
+                        cur_end_24   = convert_time_value_to_24_str(sel_row["EndTime"])
 
-                        if pick != "Select a booking":
-                            booking_id = int(pick.split("|")[0].strip())
-                            sel_row = df_sel[df_sel["Id"] == booking_id].iloc[0]
-                            cur_start_24 = convert_time_value_to_24_str(sel_row["StartTime"])
-                            cur_end_24 = convert_time_value_to_24_str(sel_row["EndTime"])
+                        start_time = datetime.strptime(cur_start_24, "%H:%M").time()
+                        end_time   = datetime.strptime(cur_end_24,   "%H:%M").time()
 
-                            # Parse once
-                            start_time = datetime.strptime(cur_start_24, "%H:%M").time()
-                            end_time = datetime.strptime(cur_end_24, "%H:%M").time()
+                        meeting_start_dt = datetime.combine(sel_row["Day"], start_time)
+                        meeting_end_dt   = datetime.combine(sel_row["Day"], end_time)
+                        now = datetime.now()
 
-                            # Combine with date
-                            start_dt = datetime.combine(sel_row["Day"], start_time)
-                            meeting_start_dt = start_dt
-                            meeting_end_dt = datetime.combine(sel_row["Day"], end_time)
+                        if now >= meeting_end_dt:
+                            st.warning("This meeting has already ended — update/delete not allowed.")
+                        else:
+                            is_ongoing = meeting_start_dt <= now <= meeting_end_dt
+                            if is_ongoing:
+                                st.info("⚡ This meeting is currently ongoing.")
 
-                            now = datetime.now()
+                            action = st.radio("Action", ["None", "Update", "Delete"], key="admin_action")
 
+                            if action == "Update":
+                                with st.expander("Update Booking", expanded=True):
+                                    with st.form(f"update_form_{booking_id}"):
 
-                            if now >= meeting_end_dt:
-                                # Meeting is finished
-                                st.warning("This meeting has already ended — update/delete not allowed.")
-                            else:
-                                # If meeting is ongoing or upcoming, allow update/delete
-                                # define is_ongoing before using it later
-                                is_ongoing = meeting_start_dt <= now <= meeting_end_dt
+                                        # Show inputs in HH.MM (12-hour number only)
+                                        if is_ongoing:
+                                            st.text(f"Day (locked): {sel_row['Day']}")
+                                            u_day = sel_row["Day"]
+                                            st.text(f"Start Time (locked): {format_24_to_12dot_no_ampm(cur_start_24)}")
+                                        else:
+                                            u_day = st.date_input("Day", value=sel_row["Day"], key=f"u_day_{booking_id}")
+                                            u_start = st.text_input(
+                                                "Start Time (HH.MM)",
+                                                value=format_24_to_12dot_no_ampm(cur_start_24),
+                                                key=f"u_start_{booking_id}"
+                                            )
 
-                                if is_ongoing:
-                                    st.info("⚡ This meeting is currently ongoing.")
+                                        u_end = st.text_input(
+                                            "End Time (HH.MM)",
+                                            value=format_24_to_12dot_no_ampm(cur_end_24),
+                                            key=f"u_end_{booking_id}"
+                                        )
 
-                                action = st.radio("Action", ["None", "Update", "Delete"], key="admin_action")
+                                        u_agenda = st.text_input(
+                                            "Agenda",
+                                            value=sel_row["Agenda"],
+                                            key=f"u_agenda_{booking_id}"
+                                        )
 
-                                if action == "Update":
-                                    with st.expander("Update Booking", expanded=True):
-                                        with st.form(f"update_form_{booking_id}"):
-
-                                            # Convert current start/end to 24h strings (HH:MM) for internal use
-                                            cur_start_24 = convert_time_value_to_24_str(sel_row["StartTime"])  # e.g. '14:30'
-                                            cur_end_24   = convert_time_value_to_24_str(sel_row["EndTime"])    # e.g. '15:30'
-
-                                            # Show inputs in HH.MM (12-hour number only, no AM/PM)
+                                        submitted = st.form_submit_button("Apply Update")
+                                        if submitted:
                                             if is_ongoing:
-                                                st.text(f"Day (locked): {sel_row['Day']}")
-                                                u_day = sel_row["Day"]  # locked
-                                                st.text(f"Start Time (locked): {format_24_to_12dot_no_ampm(cur_start_24)}")
-                                            else:
-                                                u_day = st.date_input("Day", value=sel_row["Day"], key=f"u_day_{booking_id}")
-                                                u_start = st.text_input(
-                                                    "Start Time (HH.MM)",
-                                                    value=format_24_to_12dot_no_ampm(cur_start_24),
-                                                    key=f"u_start_{booking_id}"
+                                                cur_start_24 = convert_time_value_to_24_str(sel_row["StartTime"])   # 'HH:MM'
+                                                u_day = sel_row["Day"]
+
+                                                try:
+                                                    new_start_24 = normalize_time_3part(cur_start_24)  # 'HH:MM:SS'
+                                                    new_end_24   = parse_12dot_window_to_24(u_end)     # 'HH:MM:SS'
+                                                except ValueError as e:
+                                                    st.error(str(e)); st.stop()
+
+                                                sh, sm, _ = normalize_time_3part(new_start_24).split(":")
+                                                eh, em, _ = normalize_time_3part(new_end_24).split(":")
+                                                if (int(eh), int(em)) <= (int(sh), int(sm)):
+                                                    st.error("End time must be after the start time."); st.stop()
+
+                                                if check_overlap(df_sel, u_day, new_start_24, new_end_24, exclude_id=booking_id):
+                                                    st.error("This time slot is already booked. Choose another."); st.stop()
+
+                                                update_booking(
+                                                    booking_id,
+                                                    u_day,
+                                                    new_start_24,
+                                                    new_end_24,
+                                                    u_agenda,
+                                                    person_name,
+                                                    room_choice,
+                                                    st.session_state.user['username'],
+                                                    st.session_state.user['id']
                                                 )
-
-                                            u_end = st.text_input(
-                                                "End Time (HH.MM)",
-                                                value=format_24_to_12dot_no_ampm(cur_end_24),
-                                                key=f"u_end_{booking_id}"
-                                            )
-
-                                            u_agenda = st.text_input(
-                                                "Agenda",
-                                                value=sel_row["Agenda"],
-                                                key=f"u_agenda_{booking_id}"
-                                            )
-
-                                            # ------------------------
-                                            # Form submit logic
-                                            # ------------------------
-                                            submitted = st.form_submit_button("Apply Update")
-                                            if submitted:
-
-                                                if is_ongoing:
-                                                    # Start is locked to current value/day
-                                                    cur_start_24 = convert_time_value_to_24_str(sel_row["StartTime"])   # '15:30'
-                                                    u_day = sel_row["Day"]                                               # locked
-
-                                                    # Convert end HH.MM -> HH:MM:SS (window mapping)
-                                                    try:
-                                                        new_start_24 = normalize_time_3part(cur_start_24)  # locked start 'HH:MM:SS'
-                                                        new_end_24   = parse_12dot_window_to_24(u_end)     # -> 'HH:MM:SS'
-                                                    except ValueError as e:
-                                                        st.error(str(e)); st.stop()
-
-                                                    # Enforce ordering within the same day
-                                                    sh, sm, _ = normalize_time_3part(new_start_24).split(":")
-                                                    eh, em, _ = normalize_time_3part(new_end_24).split(":")
-                                                    if (int(eh), int(em)) <= (int(sh), int(sm)):
-                                                        st.error("End time must be after the start time."); st.stop()
-
-                                                    # UI overlap check (exclude current booking)
-                                                    if check_overlap(
-                                                        df_sel, u_day, new_start_24, new_end_24, exclude_id=booking_id
-                                                    ):
-                                                        st.error("This time slot is already booked. Choose another."); st.stop()
-
-                                                    # Update DB
-                                                    update_booking(
-                                                        booking_id,
-                                                        u_day,
-                                                        new_start_24,
-                                                        new_end_24,
-                                                        u_agenda,
-                                                        person_name,
-                                                        room_choice,
-                                                        st.session_state.user['username'],
-                                                        st.session_state.user['id']
-                                                    )
-                                                    st.rerun()
-
-                                                else:
-                                                    # Future/upcoming: both start & end are editable in HH.MM
-                                                    # (accept only HH.MM; convert via business-window mapping 9–20:59)
-                                                    try:
-                                                        new_start_24 = parse_12dot_window_to_24(u_start)  # 'HH:MM:SS'
-                                                        new_end_24   = parse_12dot_window_to_24(u_end)    # 'HH:MM:SS'
-                                                    except ValueError as e:
-                                                        st.error(str(e)); st.stop()
-
-                                                    # Enforce ordering
-                                                    sh, sm, _ = normalize_time_3part(new_start_24).split(":")
-                                                    eh, em, _ = normalize_time_3part(new_end_24).split(":")
-                                                    if (int(eh), int(em)) <= (int(sh), int(sm)):
-                                                        st.error("End time must be after the start time."); st.stop()
-
-                                                    # Overlap check (exclude current booking)
-                                                    if check_overlap(
-                                                        df_sel, u_day, new_start_24, new_end_24, exclude_id=booking_id
-                                                    ):
-                                                        st.error("This time slot is already booked. Choose another."); st.stop()
-
-                                                    # Update DB
-                                                    update_booking(
-                                                        booking_id,
-                                                        u_day,
-                                                        new_start_24,
-                                                        new_end_24,
-                                                        u_agenda,
-                                                        person_name,
-                                                        room_choice,
-                                                        st.session_state.user['username'],
-                                                        st.session_state.user['id']
-                                                    )
-                                                    st.rerun()
-
-
-
-
-                                elif action == "Delete":
-                                    with st.expander("Delete Booking", expanded=True):
-                                        st.error("⚠️ Deleting a booking is permanent!")
-                                        st.markdown(f"**Booking Info:**\n- {sel_row['PersonName']} | {sel_row['Agenda']}")
-                                        
-                                        reason = st.text_area("Reason for deletion (required)", key=f"del_reason_{booking_id}")
-
-                                        if st.button("Confirm Delete", key=f"del_btn_{booking_id}"):
-                                            if not reason.strip():
-                                                st.error("Please provide a reason for deletion.")
-                                            else:
-                                                # Log old booking data
-                                                old_data = {
-                                                    "Day": str(sel_row["Day"]),
-                                                    "Start": str(sel_row["StartTime"]),
-                                                    "End": str(sel_row["EndTime"]),
-                                                    "Agenda": sel_row["Agenda"],
-                                                    "Person": sel_row["PersonName"]
-                                                }
-
-                                                conn = get_connection()
-                                                cur = conn.cursor()
-
-                                                # Delete booking
-                                                #table = "meeting_room1_bookings" if room_name_to_number(room_choice) == 1 else "meeting_room2_bookings"
-                                                if room_name_to_number(room_choice) == 1:
-                                                    table = "meeting_room1_bookings"
-                                                elif room_name_to_number(room_choice) == 2:
-                                                    table = "meeting_room2_bookings"
-                                                elif room_name_to_number(room_choice) == 3:
-                                                    table = "meeting_room3_bookings"
-                                                else:
-                                                    raise ValueError("Invalid room")
-
-                                                # ✅ Insert into deleted_meetings BEFORE deleting
-                                                cur.execute(
-                                                    """
-                                                    INSERT INTO deleted_meetings 
-                                                    (meeting_id, room, Day, StartTime, EndTime, Agenda, PersonName, deleted_by_user_id, reason)
-                                                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                                                    """,
-                                                    (
-                                                        booking_id,
-                                                        room_name_to_number(room_choice),
-                                                        sel_row["Day"],
-                                                        sel_row["StartTime"],
-                                                        sel_row["EndTime"],
-                                                        sel_row["Agenda"],
-                                                        sel_row["PersonName"],
-                                                        st.session_state.user['id'],
-                                                        reason.strip()
-                                                    )
-                                                )
-                                                
-                                                cur.execute(f"DELETE FROM {table} WHERE Id=%s", (booking_id,))
-
-
-                                                # Insert log
-                                                cur.execute(
-                                                    """
-                                                    INSERT INTO meeting_logs (username, created_by_user_id, action_type, meeting_id, room, old_data, new_data, reason)
-                                                    VALUES (%s, %s, 'DELETE', %s, %s, %s, NULL, %s)
-                                                    """,
-                                                    (
-                                                        st.session_state.user['username'],
-                                                        st.session_state.user['id'],
-                                                        booking_id,
-                                                        room_name_to_number(room_choice),
-                                                        str(old_data),
-                                                        reason.strip()
-                                                    )
-                                                )
-
-                                                conn.commit()
-                                                conn.close()
-
-                                                #st.success("Booking deleted and logged successfully.")
                                                 st.rerun()
+
+                                            else:
+                                                try:
+                                                    new_start_24 = parse_12dot_window_to_24(u_start)  # 'HH:MM:SS'
+                                                    new_end_24   = parse_12dot_window_to_24(u_end)    # 'HH:MM:SS'
+                                                except ValueError as e:
+                                                    st.error(str(e)); st.stop()
+
+                                                sh, sm, _ = normalize_time_3part(new_start_24).split(":")
+                                                eh, em, _ = normalize_time_3part(new_end_24).split(":")
+                                                if (int(eh), int(em)) <= (int(sh), int(sm)):
+                                                    st.error("End time must be after the start time."); st.stop()
+
+                                                if check_overlap(df_sel, u_day, new_start_24, new_end_24, exclude_id=booking_id):
+                                                    st.error("This time slot is already booked. Choose another."); st.stop()
+
+                                                update_booking(
+                                                    booking_id,
+                                                    u_day,
+                                                    new_start_24,
+                                                    new_end_24,
+                                                    u_agenda,
+                                                    person_name,
+                                                    room_choice,
+                                                    st.session_state.user['username'],
+                                                    st.session_state.user['id']
+                                                )
+                                                st.rerun()
+
+                            elif action == "Delete":
+                                with st.expander("Delete Booking", expanded=True):
+                                    st.error("⚠️ Deleting a booking is permanent!")
+                                    st.markdown(f"**Booking Info:**\n- {sel_row['PersonName']} | {sel_row['Agenda']}")
+                                    
+                                    reason = st.text_area("Reason for deletion (required)", key=f"del_reason_{booking_id}")
+
+                                    if st.button("Confirm Delete", key=f"del_btn_{booking_id}"):
+                                        if not reason.strip():
+                                            st.error("Please provide a reason for deletion.")
+                                        else:
+                                            # Log old booking data
+                                            old_data = {
+                                                "Day": str(sel_row["Day"]),
+                                                "Start": str(sel_row["StartTime"]),
+                                                "End": str(sel_row["EndTime"]),
+                                                "Agenda": sel_row["Agenda"],
+                                                "Person": sel_row["PersonName"]
+                                            }
+
+                                            conn = get_connection()
+                                            cur = conn.cursor()
+
+                                            # Delete booking
+                                            #table = "meeting_room1_bookings" if room_name_to_number(room_choice) == 1 else "meeting_room2_bookings"
+                                            if room_name_to_number(room_choice) == 1:
+                                                table = "meeting_room1_bookings"
+                                            elif room_name_to_number(room_choice) == 2:
+                                                table = "meeting_room2_bookings"
+                                            elif room_name_to_number(room_choice) == 3:
+                                                table = "meeting_room3_bookings"
+                                            else:
+                                                raise ValueError("Invalid room")
+
+                                            # ✅ Insert into deleted_meetings BEFORE deleting
+                                            cur.execute(
+                                                """
+                                                INSERT INTO deleted_meetings 
+                                                (meeting_id, room, Day, StartTime, EndTime, Agenda, PersonName, deleted_by_user_id, reason)
+                                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                                """,
+                                                (
+                                                    booking_id,
+                                                    room_name_to_number(room_choice),
+                                                    sel_row["Day"],
+                                                    sel_row["StartTime"],
+                                                    sel_row["EndTime"],
+                                                    sel_row["Agenda"],
+                                                    sel_row["PersonName"],
+                                                    st.session_state.user['id'],
+                                                    reason.strip()
+                                                )
+                                            )
+                                            
+                                            cur.execute(f"DELETE FROM {table} WHERE Id=%s", (booking_id,))
+
+
+                                            # Insert log
+                                            cur.execute(
+                                                """
+                                                INSERT INTO meeting_logs (username, created_by_user_id, action_type, meeting_id, room, old_data, new_data, reason)
+                                                VALUES (%s, %s, 'DELETE', %s, %s, %s, NULL, %s)
+                                                """,
+                                                (
+                                                    st.session_state.user['username'],
+                                                    st.session_state.user['id'],
+                                                    booking_id,
+                                                    room_name_to_number(room_choice),
+                                                    str(old_data),
+                                                    reason.strip()
+                                                )
+                                            )
+
+                                            conn.commit()
+                                            conn.close()
+
+                                            #st.success("Booking deleted and logged successfully.")
+                                            st.rerun()
 
 
         # ======================= HISTORY PAGE (Admin Only) =======================
