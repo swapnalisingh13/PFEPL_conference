@@ -110,24 +110,46 @@ def log_action(username, user_id, action_type, meeting_id, room, old_data=None, 
 # CRUD operations
 # -------------------------
 def insert_booking(day, start_24, end_24, agenda, person_name, room, username, user_id):
-    meeting_start_dt = datetime.combine(day, datetime.strptime(start_24, "%H:%M:%S").time())
-    meeting_end_dt = datetime.combine(day, datetime.strptime(end_24, "%H:%M:%S").time())
-    now = datetime.now()
+    # normalize to HH:MM:SS if HH:MM passed
+    start_24 = normalize_time_3part(start_24)
+    end_24   = normalize_time_3part(end_24)
 
-    # 🚫 Block any booking whose start OR end is before NOW for same-day or past-day
+    now = datetime.now()
+    meeting_start_dt = datetime.combine(day, datetime.strptime(start_24, "%H:%M:%S").time())
+    meeting_end_dt   = datetime.combine(day,   datetime.strptime(end_24,   "%H:%M:%S").time())
+
+    # past date
     if day < now.date():
         st.error("Cannot create a booking on a past date.")
         return None
-    if meeting_start_dt <= now or meeting_end_dt <= now:
-        st.error("Cannot create a booking in the past (today’s earlier times included).")
+
+    # start must be strictly in the future (block ongoing/past)
+    if meeting_start_dt <= now:
+        st.error("Start time is in the past (or now). Choose a future start time.")
         return None
 
+    # ordering
+    if meeting_end_dt <= meeting_start_dt:
+        st.error("End time must be after the start time.")
+        return None
 
+    # business window 09:00–20:59 (assumes MIN_HOUR=9, MAX_HOUR=20 defined globally)
+    def within_window(hhmmss: str) -> bool:
+        hh, mm, _ = hhmmss.split(":")
+        h = int(hh)
+        return MIN_HOUR <= h <= MAX_HOUR
+
+    if not within_window(start_24) or not within_window(end_24):
+        st.error("Times must be between 09:00 and 20:59.")
+        return None
+
+    # clash
     room_number = room_name_to_number(room)
     if has_clash(day, start_24, end_24, room_number):
         st.error("Time clash detected — choose another slot.")
         return None
 
+    # insert
     conn = get_connection()
     cursor = conn.cursor()
     if room_number == 1:
@@ -136,8 +158,14 @@ def insert_booking(day, start_24, end_24, agenda, person_name, room, username, u
         table = "meeting_room2_bookings"
     elif room_number == 3:
         table = "meeting_room3_bookings"
-    q = f"INSERT INTO {table} (Day, StartTime, EndTime, Agenda, PersonName, CreatedByUserId) VALUES (%s,%s,%s,%s,%s,%s)"
-    
+    else:
+        st.error("Invalid room.")
+        return None
+
+    q = f"""
+        INSERT INTO {table} (Day, StartTime, EndTime, Agenda, PersonName, CreatedByUserId)
+        VALUES (%s, %s, %s, %s, %s, %s)
+    """
     try:
         cursor.execute(q, (str(day), start_24, end_24, agenda, person_name, user_id))
         conn.commit()
@@ -152,7 +180,8 @@ def insert_booking(day, start_24, end_24, agenda, person_name, room, username, u
                 "PersonName": person_name,
                 "CreatedByUserId": user_id
             }
-            log_action(username, user_id, "CREATE", new_id, room_number, old_data=None, new_data=new_data, reason=None)
+            log_action(username, user_id, "CREATE", new_id, room_number,
+                       old_data=None, new_data=new_data, reason=None)
             st.session_state.data_updated = True
         else:
             st.error("Booking failed: no row inserted.")
@@ -163,6 +192,7 @@ def insert_booking(day, start_24, end_24, agenda, person_name, room, username, u
     finally:
         cursor.close()
         conn.close()
+
 
 def update_booking(booking_id, day, start_24, end_24, agenda, person_name, room, username, user_id):
     room_number = room_name_to_number(room)
@@ -181,38 +211,37 @@ def update_booking(booking_id, day, start_24, end_24, agenda, person_name, room,
         st.error("Invalid room.")
         return
 
-    # Fetch old booking
+    # old row
     cursor.execute(f"SELECT * FROM {table} WHERE Id=%s", (booking_id,))
     old_row = cursor.fetchone()
     if not old_row:
         st.error("Booking not found.")
         cursor.close(); conn.close(); return
 
-    # Ownership check
+    # ownership
     if not is_admin() and user_id != old_row['CreatedByUserId']:
         st.error("You can only update your own bookings.")
         cursor.close(); conn.close(); return
 
-    # ---- Normalize existing start/end to HH:MM:SS
+    # existing start/end -> HH:MM:SS
     old_start_ss = normalize_time_3part(convert_time_value_to_24_str(old_row.get("StartTime")))
     old_end_ss   = normalize_time_3part(convert_time_value_to_24_str(old_row.get("EndTime")))
 
-    # Build datetimes to know if the meeting is ongoing/finished
+    # status
     start_dt = datetime.combine(old_row["Day"], datetime.strptime(old_start_ss, "%H:%M:%S").time())
     end_dt   = datetime.combine(old_row["Day"], datetime.strptime(old_end_ss,   "%H:%M:%S").time())
     now = datetime.now()
     today = now.date()
 
-    # Already finished?
     if end_dt <= now:
         st.error("Cannot update a meeting that already ended.")
         cursor.close(); conn.close(); return
 
-    # ---- Normalize incoming to HH:MM:SS (safety)
+    # incoming -> HH:MM:SS
     start_24_ss = normalize_time_3part(start_24)
     end_24_ss   = normalize_time_3part(end_24)
 
-    # New date-times (what we intend to write)
+    # build new datetimes
     try:
         new_start_obj = datetime.strptime(start_24_ss, "%H:%M:%S").time()
         new_end_obj   = datetime.strptime(end_24_ss,   "%H:%M:%S").time()
@@ -223,29 +252,26 @@ def update_booking(booking_id, day, start_24, end_24, agenda, person_name, room,
     new_start_dt = datetime.combine(day, new_start_obj)
     new_end_dt   = datetime.combine(day, new_end_obj)
 
-    # No updates that land entirely in the past
+    # new end cannot be in past
     if new_end_dt <= now:
         st.error("Cannot update booking into the past. Choose a future time.")
         cursor.close(); conn.close(); return
 
-    # Business window 09:00–20:59
+    # window 09:00–20:59
     def within_window(hhmmss: str) -> bool:
         hh, mm, _ = hhmmss.split(":")
         h = int(hh)
-        if h < MIN_HOUR or h > MAX_HOUR:
-            return False
-        return True
+        return MIN_HOUR <= h <= MAX_HOUR
 
     is_ongoing = start_dt <= now <= end_dt
 
     try:
         if is_ongoing:
-            # Start & Day are locked for ongoing
+            # lock start/day
             if day != old_row["Day"] or start_24_ss != old_start_ss:
                 st.info("⚡ Ongoing meeting: to change day/start, delete & recreate.")
                 cursor.close(); conn.close(); return
 
-            # Validate window & ordering (start < new end)
             if not within_window(end_24_ss):
                 st.error("End time must be between 09:00 and 20:59.")
                 cursor.close(); conn.close(); return
@@ -254,30 +280,23 @@ def update_booking(booking_id, day, start_24, end_24, agenda, person_name, room,
                 st.error("End time must be after the start time.")
                 cursor.close(); conn.close(); return
 
-            # DB-level clash check (excluding self)
             if has_clash(day, old_start_ss, end_24_ss, room_number, exclude_id=booking_id):
                 st.error("Time clash detected — another meeting conflicts with the new time.")
                 cursor.close(); conn.close(); return
 
-            # Update only end/agenda/person
             q = f"""
                 UPDATE {table}
-                SET EndTime=%s,
-                    Agenda=%s,
-                    PersonName=%s
+                SET EndTime=%s, Agenda=%s, PersonName=%s
                 WHERE Id=%s
             """
             cursor.execute(q, (end_24_ss, agenda, person_name, booking_id))
 
         else:
-            # ---------- NEW RULE: block “back-dating” ----------
-            # If meeting hasn't started yet, you cannot move its start into the past (or now)
+            # block back-dating for future meetings
             if day < today or new_start_dt <= now:
                 st.error("Cannot update start time into the past for a meeting that hasn't started. Choose a future start time.")
                 cursor.close(); conn.close(); return
-            # ---------------------------------------------------
 
-            # Future/upcoming: validate both ends are within window and ordered
             if not within_window(start_24_ss) or not within_window(end_24_ss):
                 st.error("Times must be between 09:00 and 20:59.")
                 cursor.close(); conn.close(); return
@@ -286,18 +305,13 @@ def update_booking(booking_id, day, start_24, end_24, agenda, person_name, room,
                 st.error("End time must be after start time.")
                 cursor.close(); conn.close(); return
 
-            # DB-level clash check (excluding self)
             if has_clash(day, start_24_ss, end_24_ss, room_number, exclude_id=booking_id):
                 st.error("Time clash detected — choose another slot.")
                 cursor.close(); conn.close(); return
 
             q = f"""
                 UPDATE {table}
-                SET Day=%s,
-                    StartTime=%s,
-                    EndTime=%s,
-                    Agenda=%s,
-                    PersonName=%s
+                SET Day=%s, StartTime=%s, EndTime=%s, Agenda=%s, PersonName=%s
                 WHERE Id=%s
             """
             cursor.execute(q, (str(day), start_24_ss, end_24_ss, agenda, person_name, booking_id))
@@ -324,6 +338,7 @@ def update_booking(booking_id, day, start_24, end_24, agenda, person_name, room,
         st.error(f"Update failed: {e.msg}")
     finally:
         cursor.close(); conn.close()
+
 
 
 def delete_booking(booking_id, room, username, user_id, reason_text):
