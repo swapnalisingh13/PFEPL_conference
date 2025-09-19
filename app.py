@@ -924,76 +924,76 @@ else:
                 st.dataframe(disp3, use_container_width=True)
 
 
-                # ---------------- Create Booking ----------------
-                if st.button("Create Booking", key="toggle_create"):
-                    # flip the flag
-                    st.session_state.show_create = not st.session_state.get("show_create", False)
-                    st.session_state.show_manage = False   # always close manage if toggling create
-                    st.session_state.pop("booking_msg", None)
+            # ---------------- Create Booking ----------------
+            if st.button("Create Booking", key="toggle_create"):
+                # flip the flag
+                st.session_state.show_create = not st.session_state.get("show_create", False)
+                st.session_state.show_manage = False   # always close manage if toggling create
+                st.session_state.pop("booking_msg", None)
 
-                # now render form based on flag (not button return)
-                if st.session_state.get("show_create", False):
-                    st.markdown("---")
-                    st.subheader("Create Booking")
+            # now render form based on flag (not button return)
+            if st.session_state.get("show_create", False):
+                st.markdown("---")
+                st.subheader("Create Booking")
 
-                    c_room = st.selectbox("Room", ["Small Conference", "Big Conference", "7th Floor Conference"], key="c_room")
-                    c_day = st.date_input("Day", value=selected_day, key="c_day")
-                    c_start_input = st.text_input("Start Time (HH or HH.MM)", key="c_start_input")
-                    c_end_input = st.text_input("End Time (HH or HH.MM)", key="c_end_input")
-                    c_agenda = st.text_input("Agenda", key="c_agenda")
-                    st.text(f"Person: {person_name}")
+                c_room = st.selectbox("Room", ["Small Conference", "Big Conference", "7th Floor Conference"], key="c_room")
+                c_day = st.date_input("Day", value=selected_day, key="c_day")
+                c_start_input = st.text_input("Start Time (HH or HH.MM)", key="c_start_input")
+                c_end_input = st.text_input("End Time (HH or HH.MM)", key="c_end_input")
+                c_agenda = st.text_input("Agenda", key="c_agenda")
+                st.text(f"Person: {person_name}")
 
-                    col1, col2 = st.columns([1, 1])
+                col1, col2 = st.columns([1, 1])
 
-                    with col1:
-                        if st.button("Save Booking", key="save_create"):
-                            # Validation happens only when Save is clicked
-                            if not c_start_input or not c_end_input:
-                                st.error("Please enter both start and end times.")
-                            elif not validate_time_input(c_start_input):
-                                st.error("Invalid start time! Use HH.MM with 2-digit minutes (e.g., 11.30).")
-                            elif not validate_time_input(c_end_input):
-                                st.error("Invalid end time! Use HH.MM with 2-digit minutes (e.g., 11.30).")
+                with col1:
+                    if st.button("Save Booking", key="save_create"):
+                        # Validation happens only when Save is clicked
+                        if not c_start_input or not c_end_input:
+                            st.error("Please enter both start and end times.")
+                        elif not validate_time_input(c_start_input):
+                            st.error("Invalid start time! Use HH.MM with 2-digit minutes (e.g., 11.30).")
+                        elif not validate_time_input(c_end_input):
+                            st.error("Invalid end time! Use HH.MM with 2-digit minutes (e.g., 11.30).")
+                        else:
+                            new_start_time, new_end_time, err = smart_24_hour(c_start_input, c_end_input)
+                            if err:
+                                st.error(err)
                             else:
-                                new_start_time, new_end_time, err = smart_24_hour(c_start_input, c_end_input)
-                                if err:
-                                    st.error(err)
+                                new_start_dt = datetime.combine(c_day, new_start_time)
+                                new_end_dt = datetime.combine(c_day, new_end_time)
+
+                                # Overlap check
+                                #df_room = df1 if c_room == "Small Conference" else df2
+                                if c_room == "Small Conference":
+                                    df_room = df1
+                                elif c_room == "Big Conference":
+                                    df_room = df2
+                                elif c_room == "7th Floor Conference":
+                                    df_room = df3
+                                else :
+                                    raise ValueError("Invalid room")
+
+                                if check_overlap(df_room, c_day, new_start_time.strftime("%H:%M:%S"), new_end_time.strftime("%H:%M:%S")):
+                                    st.error("This time slot is already booked in the selected room. Choose another.")
                                 else:
-                                    new_start_dt = datetime.combine(c_day, new_start_time)
-                                    new_end_dt = datetime.combine(c_day, new_end_time)
+                                    insert_booking(
+                                        c_day,
+                                        new_start_time.strftime("%H:%M:%S"),
+                                        new_end_time.strftime("%H:%M:%S"),
+                                        c_agenda,
+                                        person_name,
+                                        c_room,
+                                        st.session_state.user['username'],
+                                        st.session_state.user['id']
+                                    )
+                                    #st.success("Booking created successfully.")
+                                    st.session_state.show_create = False
+                                    st.rerun()
 
-                                    # Overlap check
-                                    #df_room = df1 if c_room == "Small Conference" else df2
-                                    if c_room == "Small Conference":
-                                        df_room = df1
-                                    elif c_room == "Big Conference":
-                                        df_room = df2
-                                    elif c_room == "7th Floor Conference":
-                                        df_room = df3
-                                    else :
-                                        raise ValueError("Invalid room")
-
-                                    if check_overlap(df_room, c_day, new_start_time.strftime("%H:%M:%S"), new_end_time.strftime("%H:%M:%S")):
-                                        st.error("This time slot is already booked in the selected room. Choose another.")
-                                    else:
-                                        insert_booking(
-                                            c_day,
-                                            new_start_time.strftime("%H:%M:%S"),
-                                            new_end_time.strftime("%H:%M:%S"),
-                                            c_agenda,
-                                            person_name,
-                                            c_room,
-                                            st.session_state.user['username'],
-                                            st.session_state.user['id']
-                                        )
-                                        #st.success("Booking created successfully.")
-                                        st.session_state.show_create = False
-                                        st.rerun()
-
-                    with col2:
-                        if st.button("Close Create", key="cancel_create"):
-                            st.session_state.show_create = False  # just close the section
-                            st.rerun()
+                with col2:
+                    if st.button("Close Create", key="cancel_create"):
+                        st.session_state.show_create = False  # just close the section
+                        st.rerun()
 
 
                 # ---------------- Manage Bookings (Availabl to all with limited access except admin) ----------------
