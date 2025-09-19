@@ -201,6 +201,7 @@ def update_booking(booking_id, day, start_24, end_24, agenda, person_name, room,
     start_dt = datetime.combine(old_row["Day"], datetime.strptime(old_start_ss, "%H:%M:%S").time())
     end_dt   = datetime.combine(old_row["Day"], datetime.strptime(old_end_ss,   "%H:%M:%S").time())
     now = datetime.now()
+    today = now.date()
 
     # Already finished?
     if end_dt <= now:
@@ -230,10 +231,9 @@ def update_booking(booking_id, day, start_24, end_24, agenda, person_name, room,
     # Business window 09:00–20:59
     def within_window(hhmmss: str) -> bool:
         hh, mm, _ = hhmmss.split(":")
-        h = int(hh); m = int(mm)
+        h = int(hh)
         if h < MIN_HOUR or h > MAX_HOUR:
             return False
-        # cap is 20:59; m is 0..59 so just disallow >59 (never true) – we keep this for clarity
         return True
 
     is_ongoing = start_dt <= now <= end_dt
@@ -270,6 +270,13 @@ def update_booking(booking_id, day, start_24, end_24, agenda, person_name, room,
             cursor.execute(q, (end_24_ss, agenda, person_name, booking_id))
 
         else:
+            # ---------- NEW RULE: block “back-dating” ----------
+            # If meeting hasn't started yet, you cannot move its start into the past (or now)
+            if day < today or new_start_dt <= now:
+                st.error("Cannot update start time into the past for a meeting that hasn't started. Choose a future start time.")
+                cursor.close(); conn.close(); return
+            # ---------------------------------------------------
+
             # Future/upcoming: validate both ends are within window and ordered
             if not within_window(start_24_ss) or not within_window(end_24_ss):
                 st.error("Times must be between 09:00 and 20:59.")
