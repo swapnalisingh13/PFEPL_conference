@@ -17,8 +17,9 @@ This is a **Streamlit-based web application** for managing conference room booki
 ## Features
 
 - **Booking Management**
-  - Create bookings for Small and Big conference rooms.
-  - Update or delete bookings (admin only).
+  - Create bookings for Small , Big, 7th floor conference rooms.
+  - Update or delete bookings (admin /user).
+  - The user can delete or update the meeting they have created.
   - Prevent overlapping meetings automatically.
   - Time-picker with hour, minutes, and AM/PM input.
 
