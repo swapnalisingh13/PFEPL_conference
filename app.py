@@ -194,6 +194,86 @@ def insert_booking(day, start_24, end_24, agenda, person_name, room, username, u
         conn.close()
 
 
+def change_room(booking_id, old_room, new_room, day, start_24, end_24, agenda, person_name, user_id, username):
+    """
+    Change a meeting from one room to another.
+    Returns (success, error_message)
+    """
+    old_room_number = room_name_to_number(old_room)
+    new_room_number = room_name_to_number(new_room)
+    
+    # Normalize times
+    start_24 = normalize_time_3part(start_24)
+    end_24 = normalize_time_3part(end_24)
+    
+    # Check if target room has a clash
+    if has_clash(day, start_24, end_24, new_room_number):
+        return False, "Meeting is going on in that room, cannot change."
+    
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
+    
+    # Get table names
+    if old_room_number == 1:
+        old_table = "meeting_room1_bookings"
+    elif old_room_number == 2:
+        old_table = "meeting_room2_bookings"
+    elif old_room_number == 3:
+        old_table = "meeting_room3_bookings"
+    else:
+        return False, "Invalid old room."
+    
+    if new_room_number == 1:
+        new_table = "meeting_room1_bookings"
+    elif new_room_number == 2:
+        new_table = "meeting_room2_bookings"
+    elif new_room_number == 3:
+        new_table = "meeting_room3_bookings"
+    else:
+        return False, "Invalid new room."
+    
+    try:
+        # Get the old booking data
+        cursor.execute(f"SELECT * FROM {old_table} WHERE Id=%s", (booking_id,))
+        old_row = cursor.fetchone()
+        
+        if not old_row:
+            return False, "Booking not found."
+        
+        # Delete from old room
+        cursor.execute(f"DELETE FROM {old_table} WHERE Id=%s", (booking_id,))
+        
+        # Insert into new room
+        q = f"""
+            INSERT INTO {new_table} (Day, StartTime, EndTime, Agenda, PersonName, CreatedByUserId)
+            VALUES (%s, %s, %s, %s, %s, %s)
+        """
+        cursor.execute(q, (str(day), start_24, end_24, agenda, person_name, user_id))
+        new_id = cursor.lastrowid
+        
+        conn.commit()
+        
+        # Log the room change
+        new_data = {
+            "Day": str(day),
+            "StartTime": start_24,
+            "EndTime": end_24,
+            "Agenda": agenda,
+            "PersonName": person_name,
+            "CreatedByUserId": user_id,
+            "RoomChanged": f"{old_room} -> {new_room}"
+        }
+        log_action(username, user_id, "UPDATE", new_id, new_room_number,
+                   old_data=old_row, new_data=new_data, reason=f"Room changed from {old_room} to {new_room}")
+        
+        return True, None
+    except mysql.connector.Error as e:
+        return False, f"Failed to change room: {e.msg}"
+    finally:
+        cursor.close()
+        conn.close()
+
+
 def update_booking(booking_id, day, start_24, end_24, agenda, person_name, room, username, user_id):
     room_number = room_name_to_number(room)
 
@@ -746,11 +826,11 @@ def admin_rules_dialog():
 
     #### 🏠 Home (Meetings)
     1. You can **create, update, and delete** meetings.  
-    2. **Future meetings** → can be updated or deleted.  
-    3. **Ongoing meetings** → only update end time/agenda.  
-       ➝ If you want to shift it to the next day, you must delete it first and re-create.  
+    2. **Future meetings** → can be updated or deleted (including room changes).  
+    3. **Ongoing meetings** → can update end time, agenda, and **change room** (if target room is available).  
+       ➝ Day and start time are locked for ongoing meetings.  
     4. **Past meetings** → cannot be updated or deleted.  
-    5. No meeting can be shifted to another day if there's a **conflicting schedule**.  
+    5. Room changes are allowed only if the target room doesn't have a **conflicting meeting**.  
 
     #### 📜 History
     - Contains records of **completed meetings**.  
@@ -1103,6 +1183,16 @@ else:
                                 with st.expander("Update Booking", expanded=True):
                                     with st.form(f"update_form_{booking_id}"):
 
+                                        # Room selection - available for all meetings
+                                        all_rooms = ["Small Conference", "Big Conference", "7th Floor Conference"]
+                                        current_room_idx = all_rooms.index(room_choice)
+                                        u_room = st.selectbox(
+                                            "Room",
+                                            all_rooms,
+                                            index=current_room_idx,
+                                            key=f"u_room_{booking_id}"
+                                        )
+
                                         # Show inputs in HH.MM (12-hour number only)
                                         if is_ongoing:
                                             st.text(f"Day (locked): {sel_row['Day']}")
@@ -1131,6 +1221,7 @@ else:
                                         submitted = st.form_submit_button("Apply Update")
                                         if submitted:
                                             if is_ongoing:
+                                                # Ongoing meetings: can update end time, agenda, and room
                                                 cur_start_24 = convert_time_value_to_24_str(sel_row["StartTime"])   # 'HH:MM'
                                                 u_day = sel_row["Day"]
 
@@ -1145,23 +1236,48 @@ else:
                                                 if (int(eh), int(em)) <= (int(sh), int(sm)):
                                                     st.error("End time must be after the start time."); st.stop()
 
-                                                if check_overlap(df_sel, u_day, new_start_24, new_end_24, exclude_id=booking_id):
-                                                    st.error("This time slot is already booked. Choose another."); st.stop()
+                                                # Check if room is being changed
+                                                if u_room != room_choice:
+                                                    # Room change requested for ongoing meeting
+                                                    success, error_msg = change_room(
+                                                        booking_id,
+                                                        room_choice,  # old room
+                                                        u_room,       # new room
+                                                        u_day,
+                                                        new_start_24,
+                                                        new_end_24,
+                                                        u_agenda,
+                                                        person_name,
+                                                        st.session_state.user['id'],
+                                                        st.session_state.user['username']
+                                                    )
+                                                    if success:
+                                                        st.success(f"Booking updated. Room changed from {room_choice} to {u_room}.")
+                                                        st.session_state.data_updated = True
+                                                        st.rerun()
+                                                    else:
+                                                        st.error(error_msg)
+                                                        st.stop()
+                                                else:
+                                                    # No room change, just update end time and agenda
+                                                    if check_overlap(df_sel, u_day, new_start_24, new_end_24, exclude_id=booking_id):
+                                                        st.error("This time slot is already booked. Choose another."); st.stop()
 
-                                                update_booking(
-                                                    booking_id,
-                                                    u_day,
-                                                    new_start_24,
-                                                    new_end_24,
-                                                    u_agenda,
-                                                    person_name,
-                                                    room_choice,
-                                                    st.session_state.user['username'],
-                                                    st.session_state.user['id']
-                                                )
-                                                st.rerun()
+                                                    update_booking(
+                                                        booking_id,
+                                                        u_day,
+                                                        new_start_24,
+                                                        new_end_24,
+                                                        u_agenda,
+                                                        person_name,
+                                                        room_choice,
+                                                        st.session_state.user['username'],
+                                                        st.session_state.user['id']
+                                                    )
+                                                    st.rerun()
 
                                             else:
+                                                # Future meetings: can update everything including room
                                                 try:
                                                     new_start_24 = parse_12dot_window_to_24(u_start)  # 'HH:MM:SS'
                                                     new_end_24   = parse_12dot_window_to_24(u_end)    # 'HH:MM:SS'
@@ -1173,21 +1289,45 @@ else:
                                                 if (int(eh), int(em)) <= (int(sh), int(sm)):
                                                     st.error("End time must be after the start time."); st.stop()
 
-                                                if check_overlap(df_sel, u_day, new_start_24, new_end_24, exclude_id=booking_id):
-                                                    st.error("This time slot is already booked. Choose another."); st.stop()
+                                                # Check if room is being changed
+                                                if u_room != room_choice:
+                                                    # Room change requested
+                                                    success, error_msg = change_room(
+                                                        booking_id,
+                                                        room_choice,  # old room
+                                                        u_room,       # new room
+                                                        u_day,
+                                                        new_start_24,
+                                                        new_end_24,
+                                                        u_agenda,
+                                                        person_name,
+                                                        st.session_state.user['id'],
+                                                        st.session_state.user['username']
+                                                    )
+                                                    if success:
+                                                        st.success(f"Booking updated. Room changed from {room_choice} to {u_room}.")
+                                                        st.session_state.data_updated = True
+                                                        st.rerun()
+                                                    else:
+                                                        st.error(error_msg)
+                                                        st.stop()
+                                                else:
+                                                    # No room change, just regular update
+                                                    if check_overlap(df_sel, u_day, new_start_24, new_end_24, exclude_id=booking_id):
+                                                        st.error("This time slot is already booked. Choose another."); st.stop()
 
-                                                update_booking(
-                                                    booking_id,
-                                                    u_day,
-                                                    new_start_24,
-                                                    new_end_24,
-                                                    u_agenda,
-                                                    person_name,
-                                                    room_choice,
-                                                    st.session_state.user['username'],
-                                                    st.session_state.user['id']
-                                                )
-                                                st.rerun()
+                                                    update_booking(
+                                                        booking_id,
+                                                        u_day,
+                                                        new_start_24,
+                                                        new_end_24,
+                                                        u_agenda,
+                                                        person_name,
+                                                        room_choice,
+                                                        st.session_state.user['username'],
+                                                        st.session_state.user['id']
+                                                    )
+                                                    st.rerun()
 
                             elif action == "Delete":
                                 with st.expander("Delete Booking", expanded=True):
